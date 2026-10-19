@@ -9,7 +9,7 @@
 
 #include "bignum.h"
 
-enum { RSA_SHA1 = 1, RSA_SHA256 = 2, RSA_SHA512 = 3 };
+enum { RSA_SHA1 = 1, RSA_SHA256 = 2, RSA_SHA512 = 3, RSA_SHA384 = 4 };
 
 typedef struct { bn n, e; } rsa_pub;
 typedef struct { bn n, e, d, p, q, iqmp, dp, dq; } rsa_priv;

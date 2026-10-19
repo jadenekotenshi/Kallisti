@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots
 
 all: test
 
@@ -77,6 +77,19 @@ gw-smoke: build/venv/bin/python
 	$(CC) -w -g $(SANFLAGS) -Icore tests/gw_smoke.c core/*.c -o build/gw_smoke
 	build/gw_smoke tests/gw_smoke_server.py build/venv/bin/python 15915 15916 build/gw_smoke.pem build/gw_smoke.key build/gw_smoke.report
 
-.PHONY: all test lint clean tls-smoke http-smoke ws-smoke gw-smoke
+# TLS certificate validation against a real TLS server and a throwaway CA -> intermediate -> leaf chain.
+trust-smoke:
+	tests/trust_smoke_setup.sh
+	$(CC) -w -g $(SANFLAGS) -Icore tests/trust_smoke.c core/*.c -o build/trust_smoke
+	build/trust_smoke tests/http_smoke_server.py 15917 build/trustpki/chain.pem build/trustpki/leaf.key \
+	    build/trustpki/ca.pem build/trustpki/other.pem
+
+# The whole stack against the real Discord: TLS validation with the compiled-in roots, REST, WebSocket (needs
+# network; no token needed -- it only reads the public /gateway endpoint and the gateway's HELLO).
+discord-smoke:
+	$(CC) -w -g $(SANFLAGS) -Icore tests/discord_smoke.c core/*.c -o build/discord_smoke
+	build/discord_smoke
+
+.PHONY: all test lint clean tls-smoke http-smoke ws-smoke gw-smoke trust-smoke discord-smoke
 
 .SECONDARY:

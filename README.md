@@ -71,10 +71,24 @@ variable, never from the repository.
 ## TLS
 
 The vendored TLS client speaks TLS 1.2 only (ECDHE with AES-128-GCM or ChaCha20-Poly1305, RSA or ECDSA
-certificates), which Discord's endpoints accept. Open question: RatChat trusts a server by pinning its leaf
-certificate on first use, which suits an IRC server but not Discord's edge, whose certificates rotate often.
-Kallisti will need either a bundled set of root certificates with chain validation or pinning at the
-intermediate/root level.
+certificates), which Discord's endpoints accept. RatChat trusts a server by pinning its leaf certificate on
+first use, which suits an IRC server but not Discord's edge, whose certificates rotate often, so Kallisti
+validates the certificate chain properly (`tls_set_trust()`, `core/chain.c`):
+
+- every signature on the path (RSA and ECDSA with SHA-256/384/512; SHA-1 and MD5 are refused), validity dates,
+  that each issuer is a CA with room under its `pathLenConstraint`, the leaf's key and extended key usage, the
+  host name against the certificate's subjectAltName (wildcards cover exactly one label), and no unknown
+  critical extensions. The chain is built from whatever the server sends in any order, so cross-signed
+  intermediates (Discord's chain ends in GTS Root R4 cross-signed by GlobalSign) work. Revocation and name
+  constraints are not checked.
+- **Trust anchors:** `/usr/local/ssl` is read first -- `cert.pem`, `certs.pem`, `ca-bundle.crt`,
+  `ca-certificates.crt`, `curl-ca-bundle.crt` there and in `certs/`, plus every `.pem`/`.crt`/`.cer` file
+  and OpenSSL-hashed name (`xxxxxxxx.N`) in `certs/`. If that yields any certificates they are the trust store
+  (so you can update, or remove, roots by putting files there); if not, the 28 roots compiled in from
+  `core/roots_bundled.c` are used (Google Trust Services, GlobalSign, Let's Encrypt/ISRG, DigiCert, Sectigo,
+  SSL.com, Amazon, Starfield). `tools/gen_roots.py` regenerates that file from any PEM bundle.
+- **The clock matters.** Old machines often have a wrong date, which makes every certificate look expired or
+  not yet valid; the error says so, and the date checks can be switched off by passing no time.
 
 ## Building
 
@@ -83,6 +97,8 @@ Host side (macOS/Linux), strict C89 flags approximating gcc 2.7.2:
     make test          # all suites
     make http-smoke    # the HTTP client against a real scripted server (needs python3 and openssl)
     make ws-smoke      # the WebSocket client against Python's `websockets` library (first run installs it into build/venv)
+    make trust-smoke   # certificate validation against a real TLS server and a throwaway CA chain
+    make discord-smoke # the whole stack against the real discord.com / gateway.discord.gg (needs network, no token)
     make gw-smoke      # the gateway end to end against a scripted fake gateway, plain and TLS (same venv)
     make SAN=1 test    # the same under AddressSanitizer + UBSan
     make lint          # OPENSTEP-compatibility checks (the app/ part needs Makefile.openstep, not yet here)

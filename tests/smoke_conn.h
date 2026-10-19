@@ -14,10 +14,19 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <errno.h>
+#include <time.h>
 #include <poll.h>
 #include "../core/tls.h"
 #include "../core/rng.h"
+
+/* A test may set these before conn_open() to make the TLS engine validate the server's chain. */
+static const TrustStore *smoke_trust;
+static const char *smoke_host = "localhost";
+static der_time smoke_now;
+static int smoke_check_dates;
+static char smoke_error[256];
 
 typedef struct {
     int fd;
@@ -118,11 +127,43 @@ static int tls_events(Conn *c, int *handshake_done)
         } else if (ev.type == TLS_EV_CLOSED) {
             c->closed = 1;
         } else if (ev.type == TLS_EV_ERROR) {
-            fprintf(stderr, "TLS error: %s\n", ev.text);
+            strncpy(smoke_error, ev.text, sizeof(smoke_error) - 1);
+            if (!smoke_trust) {
+                fprintf(stderr, "TLS error: %s\n", ev.text);
+            }
             return -1;
         }
     }
     return tls_flush(c);
+}
+
+static int conn_tls_handshake(Conn *c)
+{
+    int done = 0;
+    unsigned char buf[8192];
+
+    c->tls = tls_new(smoke_host);
+    if (smoke_trust) {
+        tls_set_trust(c->tls, smoke_trust, smoke_check_dates ? &smoke_now : NULL);
+    }
+    if (tls_start(c->tls) != 0 || tls_flush(c) != 0) {
+        return -1;
+    }
+    while (!done) {
+        ssize_t n = recv(c->fd, buf, sizeof(buf), 0);
+
+        if (n <= 0) {
+            return -1;
+        }
+        if (tls_input(c->tls, buf, (size_t)n) != 0) {
+            tls_events(c, NULL);
+            return -1;
+        }
+        if (tls_events(c, &done) != 0) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static int conn_open(Conn *c, int port, int use_tls)
@@ -132,33 +173,45 @@ static int conn_open(Conn *c, int port, int use_tls)
     if (c->fd < 0) {
         return -1;
     }
-    if (!use_tls) {
-        return 0;
-    }
-    c->tls = tls_new("localhost");
-    if (tls_start(c->tls) != 0 || tls_flush(c) != 0) {
+    return use_tls ? conn_tls_handshake(c) : 0;
+}
+
+/* Connects to a named host (smoke_host is set to it for SNI and certificate checks). */
+static int conn_open_host(Conn *c, const char *host, int port)
+{
+    struct addrinfo hints, *res, *ai;
+    char portstr[16];
+    struct timeval tv;
+
+    memset(c, 0, sizeof(*c));
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    sprintf(portstr, "%d", port);
+    if (getaddrinfo(host, portstr, &hints, &res) != 0) {
         return -1;
     }
-    {
-        int done = 0;
-        unsigned char buf[8192];
+    c->fd = -1;
+    for (ai = res; ai != NULL; ai = ai->ai_next) {
+        int fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
 
-        while (!done) {
-            ssize_t n = recv(c->fd, buf, sizeof(buf), 0);
-
-            if (n <= 0) {
-                return -1;
-            }
-            if (tls_input(c->tls, buf, (size_t)n) != 0) {
-                tls_events(c, NULL);
-                return -1;
-            }
-            if (tls_events(c, &done) != 0) {
-                return -1;
-            }
+        if (fd >= 0 && connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+            c->fd = fd;
+            break;
+        }
+        if (fd >= 0) {
+            close(fd);
         }
     }
-    return 0;
+    freeaddrinfo(res);
+    if (c->fd < 0) {
+        return -1;
+    }
+    tv.tv_sec = 15;
+    tv.tv_usec = 0;
+    setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    smoke_host = host;
+    return conn_tls_handshake(c);
 }
 
 static int conn_send(Conn *c, const unsigned char *d, size_t n)

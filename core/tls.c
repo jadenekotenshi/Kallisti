@@ -318,6 +318,9 @@ static int handle_certificate(tls_session *s, const u8 *body, size_t len)
     const u8 *list, *first_cert;
     size_t list_len, first_cert_len;
     const char *err;
+    ChainCert chain[CHAIN_MAX_CERTS];
+    int nchain = 0;
+    char verr[240];
     u8 fp[32];
     static const char hexd[] = "0123456789ABCDEF";
     char fptext[80];
@@ -333,11 +336,36 @@ static int handle_certificate(tls_session *s, const u8 *body, size_t len)
     if (!first_cert || lr.err) { tls_fail(s, "empty certificate list"); return -1; }
 
     if (x509_parse_leaf(first_cert, first_cert_len, &s->cert, &err) != 0) { tls_fail(s, err); return -1; }
+    if (s->trust != NULL) {
+        const u8 *c = first_cert;
+        size_t cl = first_cert_len;
+
+        while (c != NULL) {
+            if (nchain >= CHAIN_MAX_CERTS) { tls_fail(s, "the server sent too many certificates"); return -1; }
+            chain[nchain].der = c;
+            chain[nchain].len = cl;
+            nchain++;
+            c = sr_left(&lr) > 0 ? tls_get_vec24(&lr, &cl) : NULL;
+            if (lr.err) { tls_fail(s, "truncated certificate list"); return -1; }
+        }
+    }
 
     need_rsa = s->cipher_suite == CS_ECDHE_RSA_AES128_GCM_SHA256 || s->cipher_suite == CS_ECDHE_RSA_CHACHA20_POLY1305;
     if ((need_rsa && s->cert.key_type != X509_KEY_RSA) || (!need_rsa && s->cert.key_type != X509_KEY_EC)) {
         tls_fail(s, "certificate key type does not match the negotiated cipher suite");
         return -1;
+    }
+
+    if (s->trust != NULL) {
+        if (chain_verify(s->trust, chain, nchain, s->hostname, s->trust_check_dates ? &s->trust_now : NULL,
+                         verr, sizeof(verr)) != 0) {
+            tls_fail(s, verr);
+            return -1;
+        }
+        s->cert_decided = 1;
+        s->cert_ok = 1;
+        s->state = TLS_ST_WAIT_SKE;
+        return 0;
     }
 
     sha256(first_cert, first_cert_len, fp);
@@ -548,6 +576,13 @@ static int drain_handshake(tls_session *s)
         if (rc < 0) return -1;
     }
     return 0;
+}
+
+void tls_set_trust(tls_session *s, const TrustStore *ts, const der_time *now)
+{
+    s->trust = ts;
+    s->trust_check_dates = now != NULL;
+    if (now != NULL) s->trust_now = *now;
 }
 
 void tls_cert_accept(tls_session *s, int accept)

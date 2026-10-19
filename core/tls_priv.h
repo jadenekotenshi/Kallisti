@@ -87,6 +87,9 @@ struct tls_session {
 
     x509_cert cert;
     int cert_decided, cert_ok;
+    const TrustStore *trust;        /* NULL: leave the trust decision to the application (TLS_EV_CERT) */
+    int trust_check_dates;
+    der_time trust_now;
     int got_cert_request;         /* server sent CertificateRequest; we never have one to offer, but
                                     * RFC 5246 SS7.4.6 still requires an empty Certificate reply */
 

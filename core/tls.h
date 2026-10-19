@@ -10,13 +10,16 @@
  *
  * Scope (see the TLS plan's "Explicit non-goals"): TLS 1.2 only, ECDHE key exchange only
  * (TLS_ECDHE_{RSA,ECDSA}_WITH_AES_128_GCM_SHA256 and the two ChaCha20-Poly1305 equivalents), no
- * renegotiation, no session resumption, no client certificates, no CA chain validation -- trust
- * is TOFU pinning of the leaf certificate (see TLS_EV_CERT and core/tls_pins.c).
+ * renegotiation, no session resumption, no client certificates.  Trust is decided one of two ways: with
+ * tls_set_trust() the engine validates the server's certificate chain against a trust store and the host
+ * name itself (core/chain.c), failing the handshake if it does not check out; without it, the application
+ * is asked through TLS_EV_CERT (the RatChat way: TOFU pinning of the leaf, see core/tls_pins.c).
  */
 #ifndef RC_TLS_H
 #define RC_TLS_H
 
 #include "ssh_types.h"
+#include "chain.h"
 
 typedef struct tls_session tls_session;
 
@@ -56,7 +59,14 @@ int          tls_is_established(const tls_session *s);
 /* Sends a close_notify alert and marks the session closed. */
 void         tls_close(tls_session *s);
 
-/* ---- certificate trust (call after TLS_EV_CERT) ---- */
+/* ---- certificate trust ---- */
+/* Validate the server's chain against `ts` (which must outlive the session) and the hostname given to
+ * tls_new().  `now` is the current UTC time, or NULL to skip the date checks.  Call before tls_start().
+ * With a trust store set, a bad chain ends the session with TLS_EV_ERROR (the text says why) and a good one
+ * goes straight on: there is no TLS_EV_CERT. */
+void         tls_set_trust(tls_session *s, const TrustStore *ts, const der_time *now);
+
+/* (without tls_set_trust) call after TLS_EV_CERT */
 void         tls_cert_accept(tls_session *s, int accept);
 
 /* ---- application data (only once TLS_EV_HANDSHAKE_DONE has fired) ---- */
