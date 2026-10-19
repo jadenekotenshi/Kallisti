@@ -91,6 +91,8 @@ void http_resp_free(HttpResp *r);
 int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *used);
 /* The peer closed the connection: finishes a read-until-close body, fails anything else incomplete. */
 int http_resp_eof(HttpResp *r);
+/* Does a comma-separated header value (e.g. "keep-alive, Upgrade") contain this token, ignoring case? */
+int http_list_has(const char *value, const char *token);
 /* Case-insensitive lookup of the first header with this name, or NULL. */
 const char *http_resp_header(const HttpResp *r, const char *name);
 

@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws
 
 all: test
 
@@ -56,6 +56,20 @@ http-smoke:
 	$(CC) -w -g $(SANFLAGS) -Icore tests/http_smoke.c core/*.c -o build/http_smoke
 	build/http_smoke tests/http_smoke_server.py 15911 15912 build/http_smoke.pem build/http_smoke.key
 
-.PHONY: all test lint clean tls-smoke http-smoke
+# Drives core/ws.c (with core/http.c for the upgrade) against Python's `websockets` library, an independent
+# implementation, in plaintext and over TLS.  The first run creates build/venv and installs `websockets`
+# into it (needs network once).
+build/venv/bin/python:
+	mkdir -p build
+	python3 -m venv build/venv
+	build/venv/bin/pip install -q websockets
+
+ws-smoke: build/venv/bin/python
+	openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -subj "/CN=localhost" \
+	    -keyout build/ws_smoke.key -out build/ws_smoke.pem 2>/dev/null
+	$(CC) -w -g $(SANFLAGS) -Icore tests/ws_smoke.c core/*.c -o build/ws_smoke
+	build/ws_smoke tests/ws_smoke_server.py build/venv/bin/python 15913 15914 build/ws_smoke.pem build/ws_smoke.key
+
+.PHONY: all test lint clean tls-smoke http-smoke ws-smoke
 
 .SECONDARY:

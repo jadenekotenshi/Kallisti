@@ -17,6 +17,11 @@ a scrolling message log, a single-line input field).
   incremental response parser (Content-Length, chunked with trailers, read-until-close, 1xx skipping,
   HEAD/204/304, and a 101 that stops at the end of the headers so the WebSocket bytes stay untouched), and a
   URL parser for http/https/ws/wss.
+- `core/ws.c` -- a sans-I/O WebSocket client (RFC 6455) on top of `http.c`: the upgrade handshake (nonce,
+  `Sec-WebSocket-Accept` check, no extensions or subprotocols), an incremental frame decoder that reassembles
+  fragments, answers pings by itself, validates UTF-8 and close codes, enforces a message size limit and turns
+  every protocol violation into one error event plus a close frame, and a masked-frame encoder with an output
+  queue. `core/base64.c` is its small companion.
 - Host-side tests for all of it (`make test`, also clean under `make SAN=1 test`). `make http-smoke` drives the
   HTTP code against a scripted real server, in plaintext and through the vendored TLS engine.
 
@@ -27,9 +32,8 @@ before any OPENSTEP code:
 
 1. ~~**HTTP/1.1 client** (`core/http.c`)~~ -- done, see above. The REST layer on top of it (fetch the gateway
    URL, list guilds/channels, post messages, rate-limit handling) comes with the gateway work.
-2. **WebSocket client** (`core/ws.c`): the RFC 6455 handshake (SHA-1 accept key) and framing
-   (masked client frames, fragmentation, ping/pong/close) for the gateway
-   (`wss://gateway.discord.gg/?v=10&encoding=json`, no compression).
+2. ~~**WebSocket client** (`core/ws.c`)~~ -- done, see above (for the gateway at
+   `wss://gateway.discord.gg/?v=10&encoding=json`, uncompressed).
 3. **Gateway session** (`core/gateway.c`): HELLO, heartbeat timer, IDENTIFY, READY,
    `GUILD_CREATE` / `CHANNEL_CREATE`, `MESSAGE_CREATE`, resume on reconnect (op 6/9), rate-limit headers
    and 429 handling on REST.
@@ -67,6 +71,7 @@ Host side (macOS/Linux), strict C89 flags approximating gcc 2.7.2:
 
     make test          # all suites
     make http-smoke    # the HTTP client against a real scripted server (needs python3 and openssl)
+    make ws-smoke      # the WebSocket client against Python's `websockets` library (first run installs it into build/venv)
     make SAN=1 test    # the same under AddressSanitizer + UBSan
     make lint          # OPENSTEP-compatibility checks (the app/ part needs Makefile.openstep, not yet here)
 

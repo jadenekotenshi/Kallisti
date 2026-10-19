@@ -360,6 +360,11 @@ static int list_has(const char *v, const char *token, int last_only)
     return found;
 }
 
+int http_list_has(const char *value, const char *token)
+{
+    return list_has(value, token, 0);
+}
+
 static int body_append(HttpResp *r, const unsigned char *d, size_t n)
 {
     size_t cap;
