@@ -1,0 +1,10 @@
+# build output
+build/
+build-san/
+dist/
+RatChat.app/
+*.o
+*.dSYM/
+
+# macOS
+.DS_Store
