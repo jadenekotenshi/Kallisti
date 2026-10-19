@@ -14,4 +14,12 @@
 #define KEYCH_UP        0xF700
 #define KEYCH_DOWN      0xF701
 
+/* OPENSTEP 4.2's AppKit does not declare NSOnState / NSOffState ("undeclared": found on i386 when StepAmp was first
+ * built there).  -setState: takes a plain int on that release, 1 for on and 0 for off; the modern SDK has them as
+ * enum constants, so they are only defined for OPENSTEP. */
+#ifdef OPENSTEP
+#define NSOnState  1
+#define NSOffState 0
+#endif
+
 #endif
