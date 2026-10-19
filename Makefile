@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway
 
 all: test
 
@@ -70,6 +70,13 @@ ws-smoke: build/venv/bin/python
 	$(CC) -w -g $(SANFLAGS) -Icore tests/ws_smoke.c core/*.c -o build/ws_smoke
 	build/ws_smoke tests/ws_smoke_server.py build/venv/bin/python 15913 15914 build/ws_smoke.pem build/ws_smoke.key
 
-.PHONY: all test lint clean tls-smoke http-smoke ws-smoke
+# Drives core/gateway.c end to end against a scripted fake gateway (same library as ws-smoke), plain and TLS.
+gw-smoke: build/venv/bin/python
+	openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -subj "/CN=localhost" \
+	    -keyout build/gw_smoke.key -out build/gw_smoke.pem 2>/dev/null
+	$(CC) -w -g $(SANFLAGS) -Icore tests/gw_smoke.c core/*.c -o build/gw_smoke
+	build/gw_smoke tests/gw_smoke_server.py build/venv/bin/python 15915 15916 build/gw_smoke.pem build/gw_smoke.key build/gw_smoke.report
+
+.PHONY: all test lint clean tls-smoke http-smoke ws-smoke gw-smoke
 
 .SECONDARY:

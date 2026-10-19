@@ -34,9 +34,11 @@ before any OPENSTEP code:
    URL, list guilds/channels, post messages, rate-limit handling) comes with the gateway work.
 2. ~~**WebSocket client** (`core/ws.c`)~~ -- done, see above (for the gateway at
    `wss://gateway.discord.gg/?v=10&encoding=json`, uncompressed).
-3. **Gateway session** (`core/gateway.c`): HELLO, heartbeat timer, IDENTIFY, READY,
-   `GUILD_CREATE` / `CHANNEL_CREATE`, `MESSAGE_CREATE`, resume on reconnect (op 6/9), rate-limit headers
-   and 429 handling on REST.
+3. ~~**Gateway session** (`core/gateway.c`)~~ -- done: a sans-I/O state machine (HELLO, jittered heartbeats,
+   a missed ACK drops the connection, IDENTIFY/RESUME, op 7/9, backoff, close-code policy where 4004/4010-4014
+   are fatal) that hands the app READY/RESUMED/DISPATCH/DISCONNECTED/FATAL events. Drivers must drain
+   `gw_next_event()` after every `gw_handle_ws_event()`, since a DISPATCH's `d` lives only until the next frame.
+   Still to come: the REST layer (post message, rate-limit headers, 429) and the guild/channel/message model.
 
 Then the app: connection sheet (token), a server/channel list, one window per text channel with the message
 log and an input field, in the style of RatChat.
@@ -72,6 +74,7 @@ Host side (macOS/Linux), strict C89 flags approximating gcc 2.7.2:
     make test          # all suites
     make http-smoke    # the HTTP client against a real scripted server (needs python3 and openssl)
     make ws-smoke      # the WebSocket client against Python's `websockets` library (first run installs it into build/venv)
+    make gw-smoke      # the gateway end to end against a scripted fake gateway, plain and TLS (same venv)
     make SAN=1 test    # the same under AddressSanitizer + UBSan
     make lint          # OPENSTEP-compatibility checks (the app/ part needs Makefile.openstep, not yet here)
 

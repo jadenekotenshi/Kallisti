@@ -15,6 +15,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <poll.h>
 #include "../core/tls.h"
 #include "../core/rng.h"
 
@@ -208,6 +209,20 @@ static long conn_recv(Conn *c, unsigned char *buf, size_t n)
             }
         }
     }
+}
+
+/* Waits up to timeout_ms for something to read: 1 if conn_recv() will not block, 0 on timeout. */
+static int conn_wait(Conn *c, int timeout_ms)
+{
+    struct pollfd p;
+
+    if (c->npending > 0) {
+        return 1;
+    }
+    p.fd = c->fd;
+    p.events = POLLIN;
+    p.revents = 0;
+    return poll(&p, 1, timeout_ms) > 0 ? 1 : 0;
 }
 
 static void conn_close(Conn *c)
