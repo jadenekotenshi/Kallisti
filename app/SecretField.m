@@ -1,4 +1,5 @@
 #import "SecretField.h"
+#import "UIHelpers.h"
 #include <string.h>
 #include <stdlib.h>
 #include "rng.h"
@@ -73,6 +74,20 @@
     }
 }
 
+/* Command-V (the Alternate key on a PC keyboard) pastes even where the Edit menu's own route to this view fails;
+ * the menu item still works, and so does the panel's Paste button. */
+- (BOOL)performKeyEquivalent:(NSEvent *)e
+{
+    NSString *c = [e charactersIgnoringModifiers];
+
+    if ([[self window] firstResponder] == self && ([e modifierFlags] & (NSCommandKeyMask | NSAlternateKeyMask)) &&
+        [c length] == 1 && ([c characterAtIndex:0] == 'v' || [c characterAtIndex:0] == 'V')) {
+        [self paste:nil];
+        return YES;
+    }
+    return [super performKeyEquivalent:e];
+}
+
 /* Puts text into the field as if typed (used to show a remembered secret). */
 - (void)setSecret:(const char *)text
 {
@@ -87,12 +102,17 @@
  * has none, but copying it often drags a trailing newline along). */
 - (void)paste:(id)sender
 {
-    NSString *s = [[NSPasteboard generalPasteboard] stringForType:NSStringPboardType];
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    NSString *s = [pb stringForType:NSStringPboardType];
     NSData *d;
     const unsigned char *b;
     unsigned i, n;
 
-    if (s == nil) return;
+    if (s == nil) {
+        SSTrace("SecretField paste: no text on the pasteboard (types: %s)", SSCS([[pb types] description]));
+        NSBeep();
+        return;
+    }
     d = [s dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
     b = (const unsigned char *)[d bytes];
     n = [d length];

@@ -7,6 +7,7 @@
 @interface LoginController (Private)
 - (void)buildPanel;
 - (void)submit:(id)sender;
+- (void)pasteToken:(id)sender;
 - (void)cancel:(id)sender;
 @end
 
@@ -46,10 +47,11 @@
     [[panel contentView] addSubview:intro];
 
     [[panel contentView] addSubview:ui_label(@"Token:", NSMakeRect(16, 194, 408, 18))];
-    tokenField = [[SecretField alloc] initWithFrame:NSMakeRect(16, 166, 408, 24)];
+    tokenField = [[SecretField alloc] initWithFrame:NSMakeRect(16, 166, 330, 24)];
     [tokenField setEnterTarget:self action:@selector(submit:)];
     [tokenField setCancelTarget:self action:@selector(cancel:)];
     [[panel contentView] addSubview:tokenField];
+    [[panel contentView] addSubview:ui_button(@"Paste", NSMakeRect(354, 164, 70, 28), self, @selector(pasteToken:))];
 
     rememberSwitch = [ui_switch(@"Remember the token on this computer", NSMakeRect(16, 136, 408, 20)) retain];
     [[panel contentView] addSubview:rememberSwitch];
@@ -94,6 +96,12 @@
     }
     [panel orderOut:nil];
     [owner loginController:self didSubmitToken:token isBot:isBot remember:remember];
+}
+
+- (void)pasteToken:(id)sender
+{
+    [tokenField paste:nil];
+    [panel makeFirstResponder:tokenField];
 }
 
 - (void)cancel:(id)sender

@@ -8,7 +8,10 @@
  */
 #import <Cocoa/Cocoa.h>
 #import "AppController.h"
+#import "SecretField.h"
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -91,6 +94,31 @@ int main(int argc, char **argv)
     main = [app mainController];
     CHECK(main != nil);
     CHECK(waitFor(isConnected, app, 15.0));
+
+    /* the token field takes pasted text (whitespace dropped) from the menu route and from Command-V */
+    {
+        NSWindow *w = [[[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 200, 60) styleMask:NSTitledWindowMask
+                                                     backing:NSBackingStoreBuffered defer:NO] autorelease];
+        SecretField *f = [[[SecretField alloc] initWithFrame:NSMakeRect(10, 10, 180, 24)] autorelease];
+        NSEvent *e;
+        char *got;
+
+        [[w contentView] addSubview:f];
+        [w makeFirstResponder:f];
+        [[NSPasteboard generalPasteboard] declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+        [[NSPasteboard generalPasteboard] setString:@"  abc.DEF-123\n" forType:NSStringPboardType];
+        [f paste:nil];
+        CHECK([f length] == 11);
+        got = [f copySecret];
+        CHECK(got != NULL && strcmp(got, "abc.DEF-123") == 0);
+        free(got);
+        [f wipe];
+        e = [NSEvent keyEventWithType:NSKeyDown location:NSMakePoint(0, 0) modifierFlags:NSCommandKeyMask timestamp:0
+                         windowNumber:[w windowNumber] context:nil characters:@"v" charactersIgnoringModifiers:@"v"
+                            isARepeat:NO keyCode:9];
+        CHECK([f performKeyEquivalent:e] == YES && [f length] == 11);
+        [f wipe];
+    }
 
     /* the list: the server, its category, and its two text channels with the unread counts from the gateway */
     labels = [main listLabels];
