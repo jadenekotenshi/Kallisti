@@ -35,7 +35,8 @@ int ktime_parse(const char *iso, unsigned long *secs)
 {
     int y, mo, d, h, mi, s, off_h = 0, off_m = 0, sign = 1;
     const char *p;
-    long days, total;
+    long days;
+    unsigned long base, off;
 
     if (iso == NULL || strlen(iso) < 19) {
         return -1;
@@ -66,11 +67,24 @@ int ktime_parse(const char *iso, unsigned long *secs)
         return -1;
     }
     days = days_from_civil(y, mo, d);
-    total = days * 86400L + h * 3600L + mi * 60L + s - sign * (off_h * 3600L + off_m * 60L);
-    if (total < 0) {
+    if (days > 49709L) {                                 /* past 2106: does not fit 32 unsigned bits */
         return -1;
     }
-    *secs = (unsigned long)total;
+    /* unsigned throughout: OPENSTEP's long is 32 bits, and dates after 2038 overflow a signed one */
+    base = (unsigned long)days * 86400UL + (unsigned long)h * 3600UL + (unsigned long)mi * 60UL + (unsigned long)s;
+    off = (unsigned long)off_h * 3600UL + (unsigned long)off_m * 60UL;
+    if (sign > 0) {
+        if (off > base) {
+            return -1;
+        }
+        base -= off;
+    } else {
+        if (base + off < base) {
+            return -1;
+        }
+        base += off;
+    }
+    *secs = base;
     return 0;
 }
 
