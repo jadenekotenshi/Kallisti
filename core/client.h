@@ -21,12 +21,13 @@
 #include "ws.h"
 
 enum { KC_IDLE = 0, KC_VERIFYING, KC_CONNECTING, KC_ONLINE, KC_FATAL, KC_STOPPED };
-enum { KE_STATE = 1, KE_ERROR };
+enum { KE_STATE = 1, KE_ERROR, KE_CHANNEL };
 
 typedef struct {
-    int type;                    /* KE_STATE: the client's state changed; KE_ERROR: something to tell the user */
+    int type;                    /* KE_STATE: the client's state changed; KE_ERROR: something to tell the user;
+                                  * KE_CHANNEL: a conversation the user asked for is ready, show it */
     int state;                   /* KE_STATE: the new KC_* state */
-    char text[240];              /* a sentence for the status line or an alert */
+    char text[240];              /* a sentence for the status line or an alert; KE_CHANNEL: the channel id */
 } KEvent;
 
 #define KC_MAX_PENDING 24
@@ -93,5 +94,8 @@ void kc_open_channel(KClient *kc, const char *channel_id);
 /* Queues a message; returns 0, or a REST_E_* code (empty, too long, queue full). Failures that happen later
  * come back as KE_ERROR events. */
 int kc_send_message(KClient *kc, const char *channel_id, const char *text);
+/* Opens a direct message with a user (by id). Returns 0 or a REST_E_* code; the answer is a KE_CHANNEL event,
+ * or a KE_ERROR (for a bot: the user must share a server with it). */
+int kc_open_dm(KClient *kc, const char *user_id);
 
 #endif

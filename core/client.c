@@ -80,7 +80,8 @@ void kc_init(KClient *kc, const char *token, int is_bot)
     net_init(&kc->gconn);
     rest_init(&kc->rest, kc->token, is_bot);
     gw_init(&kc->gw, kc->token,
-            is_bot ? (GW_INTENT_GUILDS | GW_INTENT_GUILD_MESSAGES | GW_INTENT_MESSAGE_CONTENT) : 0);
+            is_bot ? (GW_INTENT_GUILDS | GW_INTENT_GUILD_MESSAGES | GW_INTENT_DIRECT_MESSAGES |
+                  GW_INTENT_MESSAGE_CONTENT) : 0);
     model_init(&kc->model);
     kc->state = KC_IDLE;
 }
@@ -235,6 +236,15 @@ static void handle_result(KClient *kc, const RestResult *res, KMs now)
             model_ingest_message(&kc->model, res->body, 1);
         } else {
             sprintf(msg, "Message not sent: %.200s", res->error);
+            emit(kc, KE_ERROR, kc->state, msg);
+        }
+        break;
+    case REST_CREATE_DM:
+        if (res->ok) {
+            model_ingest_private_channel(&kc->model, res->body);
+            emit(kc, KE_CHANNEL, kc->state, json_get_str(res->body, "id", ""));
+        } else {
+            sprintf(msg, "Could not start the conversation: %.200s", res->error);
             emit(kc, KE_ERROR, kc->state, msg);
         }
         break;
@@ -611,5 +621,16 @@ int kc_send_message(KClient *kc, const char *channel_id, const char *text)
         return (int)id;
     }
     pend_add(kc, id, REST_POST_MESSAGE, channel_id);
+    return 0;
+}
+
+int kc_open_dm(KClient *kc, const char *user_id)
+{
+    long id = rest_create_dm(&kc->rest, user_id);
+
+    if (id <= 0) {
+        return (int)id;
+    }
+    pend_add(kc, id, REST_CREATE_DM, NULL);
     return 0;
 }

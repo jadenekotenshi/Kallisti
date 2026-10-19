@@ -57,8 +57,8 @@ CORE_OBJS = core/aes.o core/base64.o core/bignum.o core/chacha.o core/chain.o co
             core/roots.o core/roots_bundled.o core/rsa.o core/sha1.o core/sha2.o core/tls.o \
             core/tls_aead_chacha.o core/tls_aead_gcm.o core/tls_pins.o core/tls_prf.o \
             core/tls_wire.o core/wire.o core/ws.o core/x509.o
-APP_OBJS  = app/AppController.o app/LoginController.o app/MainController.o app/SecretField.o \
-            app/UIHelpers.o app/main.o
+APP_OBJS  = app/AppController.o app/ChannelPane.o app/ChannelWindow.o app/DMController.o \
+            app/LoginController.o app/MainController.o app/SecretField.o app/UIHelpers.o app/main.o
 
 .SUFFIXES: .c .m .o
 

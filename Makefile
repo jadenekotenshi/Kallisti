@@ -123,7 +123,8 @@ check-objc:
 	done
 
 # The real AppController/MainController stack, with the modern Cocoa on this Mac, against the fake Discord.
-UI_SRC = app/AppController.m app/LoginController.m app/MainController.m app/SecretField.m app/UIHelpers.m
+UI_SRC = app/AppController.m app/LoginController.m app/MainController.m app/ChannelPane.m app/ChannelWindow.m \
+         app/DMController.m app/SecretField.m app/UIHelpers.m
 ui-smoke: build/venv/bin/python
 	mkdir -p build/ui
 	for f in tests/ui_smoke.m $(UI_SRC); do \

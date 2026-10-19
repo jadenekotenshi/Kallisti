@@ -271,7 +271,7 @@ static void test_messages(void)
 
     /* ignored: unknown channel (a thread), missing fields, wrong types */
     drain(m, ch, 16);
-    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"3000\",\"channel_id\":\"9999\",\"content\":\"x\",\"author\":{\"id\":\"1\"}}");
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"3000\",\"channel_id\":\"9999\",\"guild_id\":\"100\",\"content\":\"x\",\"author\":{\"id\":\"1\"}}");
     dispatch(m, "MESSAGE_CREATE", "{\"id\":\"3001\",\"channel_id\":\"200\",\"content\":\"x\"}");
     dispatch(m, "MESSAGE_CREATE", "{\"channel_id\":\"200\",\"content\":\"x\",\"author\":{\"id\":\"1\"}}");
     dispatch(m, "MESSAGE_CREATE", "{\"id\":3002,\"channel_id\":\"200\",\"content\":\"x\",\"author\":{\"id\":\"1\"}}");
@@ -412,6 +412,66 @@ static void test_reconnect(void)
     model_free(m);
 }
 
+static void test_direct_messages(void)
+{
+    Model *m = start();
+    Guild *g;
+    Channel *c;
+    ModelChange ch[16];
+
+    drain(m, ch, 16);
+    /* a user account's READY carries its DMs */
+    ready(m, "{\"guilds\":[{\"id\":\"100\",\"unavailable\":true}],\"private_channels\":["
+             "{\"id\":\"900\",\"type\":1,\"recipients\":[{\"id\":\"7\",\"username\":\"seven\",\"global_name\":\"Seven\"}]},"
+             "{\"id\":\"901\",\"type\":3,\"name\":null,\"recipients\":[{\"id\":\"7\",\"username\":\"seven\"},{\"id\":\"8\",\"username\":\"eight\"},{\"id\":\"42\",\"username\":\"me\"}]},"
+             "{\"id\":\"902\",\"type\":3,\"name\":\"The Group\",\"recipients\":[]},"
+             "{\"id\":\"903\",\"type\":2},{\"type\":1}]}");
+    CHECK(m->nguilds == 2 && strcmp(m->guilds[0].id, MODEL_DM_GUILD) == 0 && strcmp(m->guilds[0].name, "Direct Messages") == 0);
+    g = &m->guilds[0];
+    CHECK(g->nch == 3);
+    c = model_find_channel(m, "900");
+    CHECK(c != NULL && c->type == CH_DM && strcmp(c->name, "Seven") == 0 && strcmp(c->guild_id, "@me") == 0);
+    c = model_find_channel(m, "901");
+    CHECK(c != NULL && c->type == CH_GROUP_DM && strcmp(c->name, "seven, eight") == 0);        /* we are left out of the name */
+    CHECK(model_find_channel(m, "902") != NULL && strcmp(model_find_channel(m, "902")->name, "The Group") == 0);
+    CHECK(model_find_channel(m, "903") == NULL);
+
+    /* a message in a DM always counts as a mention */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"1\",\"channel_id\":\"900\",\"content\":\"psst\",\"author\":{\"id\":\"7\",\"username\":\"seven\"}}");
+    c = model_find_channel(m, "900");
+    CHECK(c->nmsgs == 1 && c->unread == 1 && c->mentions == 1);
+
+    /* a message in a conversation we have not heard of makes its channel */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"2\",\"channel_id\":\"950\",\"content\":\"hello?\",\"author\":{\"id\":\"9\",\"username\":\"nine\",\"global_name\":\"Nine\"}}");
+    c = model_find_channel(m, "950");
+    CHECK(c != NULL && c->type == CH_DM && strcmp(c->name, "Nine") == 0 && c->nmsgs == 1 && c->unread == 1);
+    /* ... but not for a guild channel we do not know (a thread), and not one we wrote in ourselves unnamed */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"3\",\"channel_id\":\"951\",\"guild_id\":\"100\",\"content\":\"x\",\"author\":{\"id\":\"9\",\"username\":\"nine\"}}");
+    CHECK(model_find_channel(m, "951") == NULL);
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"4\",\"channel_id\":\"952\",\"content\":\"from my phone\",\"author\":{\"id\":\"42\",\"username\":\"me\"}}");
+    c = model_find_channel(m, "952");
+    CHECK(c != NULL && strcmp(c->name, "conversation") == 0 && c->unread == 0);
+
+    /* channel events without a guild */
+    dispatch(m, "CHANNEL_CREATE", "{\"id\":\"960\",\"type\":1,\"recipients\":[{\"id\":\"5\",\"username\":\"five\"}]}");
+    CHECK(model_find_channel(m, "960") != NULL && strcmp(model_find_channel(m, "960")->name, "five") == 0);
+    dispatch(m, "CHANNEL_DELETE", "{\"id\":\"960\",\"type\":1}");
+    CHECK(model_find_channel(m, "960") == NULL);
+    dispatch(m, "CHANNEL_DELETE", "{\"id\":\"961\",\"type\":1}");
+
+    /* a new session keeps the DMs (they are not a server READY lists) and stays first */
+    ready(m, "{\"guilds\":[{\"id\":\"100\",\"unavailable\":true},{\"id\":\"105\",\"unavailable\":true}]}");
+    CHECK(m->nguilds == 3 && strcmp(m->guilds[0].id, "@me") == 0 && model_find_channel(m, "900") != NULL &&
+          model_find_channel(m, "900")->nmsgs == 1);
+    /* DMs created before any server exists still come first */
+    model_free(m);
+    model_init(m);
+    ready(m, "{\"guilds\":[{\"id\":\"100\",\"unavailable\":true}]}");
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"5\",\"channel_id\":\"970\",\"content\":\"hi\",\"author\":{\"id\":\"6\",\"username\":\"six\"}}");
+    CHECK(m->nguilds == 2 && strcmp(m->guilds[0].id, "@me") == 0 && strcmp(m->guilds[1].id, "100") == 0);
+    model_free(m);
+}
+
 static unsigned long rs = 99;
 static unsigned rnd(void)
 {
@@ -490,6 +550,7 @@ int main(void)
     test_update_delete();
     test_history_and_cap();
     test_reconnect();
+    test_direct_messages();
     test_fuzz();
     TEST_DONE("model");
 }

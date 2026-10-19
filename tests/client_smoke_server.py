@@ -25,11 +25,14 @@ clients = set()
 state = {'seq': 100, 'next_id': 500, 'limited': False, 'missed': False}
 
 
-def msg(mid, content, author='7', name='someone', channel='200', mentions=None):
-    return {'id': str(mid), 'channel_id': channel, 'guild_id': '100', 'content': content,
+def msg(mid, content, author='7', name='someone', channel='200', mentions=None, guild='100'):
+    m = {'id': str(mid), 'channel_id': channel, 'content': content,
             'timestamp': '2026-10-19T10:00:00.000000+00:00', 'edited_timestamp': None, 'type': 0,
             'author': {'id': author, 'username': name, 'global_name': None}, 'mentions': mentions or [],
             'attachments': [], 'embeds': []}
+    if guild:
+        m['guild_id'] = guild
+    return m
 
 
 def frame(op, d=None, s=None, t=None):
@@ -93,6 +96,20 @@ async def rest_conn(reader, writer):
                             [('X-RateLimit-Remaining', '4'), ('X-RateLimit-Reset-After', '1.0')])
             elif method == 'GET' and path == '/api/v10/channels/201/messages':
                 await reply(writer, HTTPStatus.FORBIDDEN, {'message': 'Missing Access', 'code': 50001})
+            elif method == 'GET' and path == '/api/v10/channels/900/messages':
+                await reply(writer, HTTPStatus.OK, [])
+            elif method == 'POST' and path == '/api/v10/users/@me/channels':
+                rid = json.loads(body)['recipient_id']
+                if rid == '666':
+                    await reply(writer, HTTPStatus.FORBIDDEN, {'message': 'Cannot send messages to this user', 'code': 50007})
+                else:
+                    await reply(writer, HTTPStatus.OK, {'id': '900', 'type': 1, 'recipients': [{'id': rid, 'username': 'someone'}]})
+            elif method == 'POST' and path == '/api/v10/channels/900/messages':
+                content = json.loads(body)['content']
+                state['next_id'] += 1
+                m = msg(state['next_id'], content, author='42', name='Kallisti-bot', channel='900', guild=None)
+                await reply(writer, HTTPStatus.OK, m)
+                await broadcast('MESSAGE_CREATE', m)
             elif method == 'POST' and path == '/api/v10/channels/200/messages':
                 content = json.loads(body)['content']
                 if content == 'ratelimit' and not state['limited']:
@@ -107,6 +124,9 @@ async def rest_conn(reader, writer):
                     m = msg(state['next_id'], content, author='42', name='Kallisti-bot')
                     if content == 'kick':
                         state['missed'] = True
+                    if content == 'dmme':
+                        state['next_id'] += 1
+                        await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'psst, a DM', author='8', name='eight', channel='901', guild=None))
                     await reply(writer, HTTPStatus.OK, m)
                     await broadcast('MESSAGE_CREATE', m)
                     if content == 'kick':
@@ -133,7 +153,7 @@ async def handler(ws):
                 await ws.send(frame(11))
             elif m['op'] == 2:
                 d = m['d']
-                assert d['token'] == TOKEN and d['intents'] == (1 | (1 << 9) | (1 << 15)), d
+                assert d['token'] == TOKEN and d['intents'] == (1 | (1 << 9) | (1 << 12) | (1 << 15)), d
                 state['seq'] = 100
                 await ws.send(frame(0, {'session_id': 'sess-1', 'resume_gateway_url': '%s://localhost:%d' % (SCHEME, PORT + 1),
                                         'user': {'id': '42', 'username': 'Kallisti-bot'},

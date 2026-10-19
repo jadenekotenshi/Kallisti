@@ -1,6 +1,8 @@
 #import "Compat.h"
 #import "LoginController.h"
 #import "MainController.h"
+#import "ChannelWindow.h"
+#import "DMController.h"
 #include "client.h"
 #include "kprefs.h"
 
@@ -21,6 +23,8 @@
     id                 entropyMeter;
     char              *pendingToken;       /* held while the entropy panel is up */
     NSMenuItem        *datesItem;
+    NSMutableArray    *channelWindows;     /* every open ChannelWindow */
+    DMController      *dmController;
     NSString          *restHost, *gatewayURL;   /* tests aim the client at a fake server; nil: Discord */
     int                restPort, restTLS;
 }
@@ -30,6 +34,8 @@
 /* As if the token had been typed into the sign-in panel (needs a seeded random pool). */
 - (void)signInWithToken:(NSString *)token isBot:(BOOL)isBot;
 - (MainController *)mainController;
+- (void)openWindowForChannel:(NSString *)channelId;     /* what a double-click in the list does */
+- (ChannelWindow *)windowForChannel:(NSString *)channelId;
 - (KClient *)client;
 /* EntropyMeter's callback once the random pool is credited enough to use. */
 - (void)entropyReady;

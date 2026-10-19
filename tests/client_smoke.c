@@ -35,6 +35,8 @@ typedef struct {
     int nstates;
     char errors[8][240];
     int nerrors;
+    char channels[4][24];
+    int nchannels;
 } Seen;
 
 static void drain_events(KClient *kc, Seen *s)
@@ -48,6 +50,8 @@ static void drain_events(KClient *kc, Seen *s)
             s->nstates++;
         } else if (ev.type == KE_ERROR && s->nerrors < 8) {
             strcpy(s->errors[s->nerrors++], ev.text);
+        } else if (ev.type == KE_CHANNEL && s->nchannels < 4) {
+            strcpy(s->channels[s->nchannels++], ev.text);
         }
     }
 }
@@ -119,6 +123,19 @@ static int c_has_missed(KClient *kc, Seen *s)
     }
     return 0;
 }
+static int c_has_dm901(KClient *kc, Seen *s)
+{
+    Channel *c = model_find_channel(&kc->model, "901");
+
+    return c != NULL && c->nmsgs == 1;
+}
+static int c_has_dmhi(KClient *kc, Seen *s)
+{
+    Channel *c = model_find_channel(&kc->model, "900");
+
+    return c != NULL && c->nmsgs == 1;
+}
+static int c_channel_event(KClient *kc, Seen *s) { return s->nchannels >= 1; }
 static int c_stopped(KClient *kc, Seen *s) { return kc->state == KC_STOPPED; }
 
 static int count_text(KClient *kc, const char *text)
@@ -205,6 +222,28 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
     CHECK(kc_send_message(&kc, "200", "fail") == 0);
     CHECK(run_until(&kc, &seen, c_error1, 10000));
     CHECK(strstr(seen.errors[0], "Message not sent") != NULL && strstr(seen.errors[0], "empty message") != NULL);
+
+    /* a DM from someone we have no channel with appears under Direct Messages, counted as a mention */
+    CHECK(kc_send_message(&kc, "200", "dmme") == 0);
+    CHECK(run_until(&kc, &seen, c_has_dm901, 10000));
+    c = model_find_channel(&kc.model, "901");
+    CHECK(c != NULL && c->type == CH_DM && strcmp(c->name, "eight") == 0 && c->unread == 1 && c->mentions == 1 &&
+          strcmp(c->msgs[0].text, "psst, a DM") == 0);
+    CHECK(kc.model.nguilds == 2 && strcmp(kc.model.guilds[0].id, "@me") == 0);
+
+    /* starting a DM by user id: the channel arrives, can be written in, and a refusal is reported */
+    CHECK(kc_open_dm(&kc, "") == REST_E_BAD);
+    CHECK(kc_open_dm(&kc, "7") == 0);
+    CHECK(run_until(&kc, &seen, c_channel_event, 10000));
+    CHECK(strcmp(seen.channels[0], "900") == 0 && model_find_channel(&kc.model, "900") != NULL &&
+          strcmp(model_find_channel(&kc.model, "900")->name, "someone") == 0);
+    CHECK(kc_send_message(&kc, "900", "hello dm") == 0);
+    CHECK(run_until(&kc, &seen, c_has_dmhi, 10000));
+    CHECK(strcmp(model_find_channel(&kc.model, "900")->msgs[0].text, "hello dm") == 0);
+    seen.nerrors = 0;
+    CHECK(kc_open_dm(&kc, "666") == 0);
+    CHECK(run_until(&kc, &seen, c_error1, 10000));
+    CHECK(strstr(seen.errors[0], "Could not start the conversation") != NULL && strstr(seen.errors[0], "Cannot send messages") != NULL);
 
     /* the server tells us to reconnect: we resume and get what we missed */
     seen.nstates = 0;

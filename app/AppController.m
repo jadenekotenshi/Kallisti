@@ -83,6 +83,10 @@ static KMs app_now_ms(void)
 - (void)drainEngine;
 - (void)endSession;
 - (void)savePrefs;
+- (void)openCurrentInWindow:(id)sender;
+- (void)showNewDM:(id)sender;
+- (void)closeChannelWindows;
+- (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target;
 @end
 
 @implementation AppController
@@ -96,6 +100,7 @@ static KMs app_now_ms(void)
     rngSeedPath = [[kallistiDir stringByAppendingPathComponent:@"rng_seed"] retain];
     trust_init(&trust);
     kprefs_defaults(&prefs);
+    channelWindows = [[NSMutableArray alloc] init];
     return self;
 }
 
@@ -106,6 +111,8 @@ static KMs app_now_ms(void)
     memset(&prefs, 0, sizeof(prefs));
     [loginController release];
     [mainController release];
+    [channelWindows release];
+    [dmController release];
     [kallistiDir release]; [prefsPath release]; [rngSeedPath release];
     [entropyPanel release];
     [restHost release]; [gatewayURL release];
@@ -150,6 +157,8 @@ static KMs app_now_ms(void)
     m = [self submenuNamed:@"Discord" inMenu:main];
     [self addItem:@"Sign In..." action:@selector(showLogin:) key:@"n" target:self toMenu:m];
     [self addItem:@"Disconnect" action:@selector(disconnect:) key:@"d" target:self toMenu:m];
+    [self addItem:@"New Direct Message..." action:@selector(showNewDM:) key:@"t" target:self toMenu:m];
+    [self addItem:@"Open Channel in New Window" action:@selector(openCurrentInWindow:) key:@"o" target:self toMenu:m];
     [self addItem:@"Check Certificate Dates" action:@selector(toggleDates:) key:@"" target:self toMenu:m];
     datesItem = [m itemWithTitle:@"Check Certificate Dates"];
 
@@ -341,6 +350,7 @@ static KMs app_now_ms(void)
     ModelChange ch;
     BOOL fatal = NO;
     NSString *fatalText = nil;
+    int i;
 
     while (kc && kc_next_event(kc, &ev)) {
         if (ev.type == KE_STATE) {
@@ -349,10 +359,14 @@ static KMs app_now_ms(void)
         } else if (ev.type == KE_ERROR) {
             [mainController setStatus:S(ev.text)];
             [mainController appendNotice:S(ev.text)];
+            for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] appendNotice:S(ev.text)];
+        } else if (ev.type == KE_CHANNEL) {
+            [mainController selectChannelWithId:S(ev.text)];        /* a conversation the user asked for */
         }
     }
     while (kc && kc_next_change(kc, &ch)) {
         [mainController modelChanged:&ch];
+        for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] modelChanged:&ch];
     }
     if (fatal) {
         [self endSession];
@@ -362,9 +376,18 @@ static KMs app_now_ms(void)
     }
 }
 
+- (void)closeChannelWindows
+{
+    int i;
+
+    for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] closeWindow];
+    [channelWindows removeAllObjects];
+}
+
 - (void)endSession
 {
     [timer invalidate]; [timer release]; timer = nil;
+    [self closeChannelWindows];
     if (kc) {
         kc_stop(kc);
         kc_free(kc);
@@ -387,21 +410,93 @@ static KMs app_now_ms(void)
     if (kc) kc_open_channel(kc, [channelId cString]);
 }
 
-- (void)mainController:(MainController *)mc didSubmitText:(NSString *)text forChannel:(NSString *)channelId
+/* Sends a line to a channel; problems are reported to `target` (a window or the main controller) as notices. */
+- (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target
 {
     int rc;
 
     if (!kc || kc->state != KC_ONLINE) {
-        [mc appendNotice:@"Not connected; the message was not sent."];
+        [target appendNotice:@"Not connected; the message was not sent."];
         return;
     }
     rc = kc_send_message(kc, [channelId cString], UI_CPATH(text));
     if (rc == REST_E_TOO_LONG) {
-        [mc appendNotice:@"That message is longer than Discord's limit of 2000 characters."];
+        [target appendNotice:@"That message is longer than Discord's limit of 2000 characters."];
     } else if (rc == REST_E_FULL) {
-        [mc appendNotice:@"Too many messages are waiting to be sent; try again in a moment."];
+        [target appendNotice:@"Too many messages are waiting to be sent; try again in a moment."];
     } else if (rc != 0) {
-        [mc appendNotice:@"That message cannot be sent."];
+        [target appendNotice:@"That message cannot be sent."];
+    }
+}
+
+- (void)mainController:(MainController *)mc didSubmitText:(NSString *)text forChannel:(NSString *)channelId
+{
+    [self sendText:text toChannel:channelId notify:mc];
+}
+
+- (void)channelWindow:(ChannelWindow *)cw didSubmitText:(NSString *)text forChannel:(NSString *)channelId
+{
+    [self sendText:text toChannel:channelId notify:cw];
+}
+
+- (ChannelWindow *)windowForChannel:(NSString *)channelId
+{
+    int i;
+
+    for (i = 0; i < (int)[channelWindows count]; i++) {
+        ChannelWindow *w = [channelWindows objectAtIndex:i];
+        if ([[w channelId] isEqualToString:channelId]) return w;
+    }
+    return nil;
+}
+
+- (void)openWindowForChannel:(NSString *)channelId
+{
+    ChannelWindow *w;
+
+    if (!kc || channelId == nil) return;
+    w = [self windowForChannel:channelId];
+    if (w == nil) {
+        w = [[[ChannelWindow alloc] initWithOwner:self model:kc_model(kc) channel:channelId] autorelease];
+        [channelWindows addObject:w];
+        kc_open_channel(kc, [channelId cString]);
+    }
+    [w show];
+}
+
+- (void)mainController:(MainController *)mc didRequestWindowForChannel:(NSString *)channelId
+{
+    [self openWindowForChannel:channelId];
+}
+
+- (void)openCurrentInWindow:(id)sender
+{
+    NSString *cid = [mainController currentChannel];
+
+    if (cid) [self openWindowForChannel:cid];
+    else NSBeep();
+}
+
+- (void)channelWindowClosed:(ChannelWindow *)cw
+{
+    [[cw retain] autorelease];
+    [channelWindows removeObject:cw];
+}
+
+- (void)showNewDM:(id)sender
+{
+    if (!kc || kc->state != KC_ONLINE) {
+        NSRunAlertPanel(@"Not connected", @"Sign in first.", @"OK", nil, nil);
+        return;
+    }
+    if (!dmController) dmController = [[DMController alloc] initWithOwner:self];
+    [dmController showPanel];
+}
+
+- (void)dmController:(DMController *)dc didSubmitUserId:(NSString *)userId
+{
+    if (kc && kc_open_dm(kc, [userId cString]) != 0) {
+        [mainController appendNotice:@"That is not a valid user ID."];
     }
 }
 

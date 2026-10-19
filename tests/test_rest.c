@@ -166,6 +166,25 @@ static void test_requests(void)
     rest_free(&rc);
 }
 
+static void test_create_dm(void)
+{
+    RestClient rc;
+    RestResult res;
+    char t[2048];
+    long id;
+
+    rest_init(&rc, "tok", 1);
+    CHECK(rest_create_dm(&rc, "") == REST_E_BAD && rest_create_dm(&rc, "7x") == REST_E_BAD && rest_create_dm(&rc, NULL) == REST_E_BAD);
+    id = rest_create_dm(&rc, "123456789012345678");
+    CHECK(id > 0);
+    CHECK(next_req(&rc, 0, t, sizeof(t)) == id);
+    CHECK(STARTS(t, "POST /api/v10/users/@me/channels HTTP/1.1\r\n"));
+    CHECK(has(t, "\r\n\r\n{\"recipient_id\":\"123456789012345678\"}"));
+    answer(&rc, 0, 200, "", "{\"id\":\"900\",\"type\":1,\"recipients\":[{\"id\":\"123456789012345678\"}]}");
+    CHECK(rest_next_result(&rc, &res) && res.ok && res.kind == REST_CREATE_DM && strcmp(json_get_str(res.body, "id", ""), "900") == 0);
+    rest_free(&rc);
+}
+
 static void test_errors(void)
 {
     RestClient rc;
@@ -512,6 +531,7 @@ int main(void)
 {
     test_queueing();
     test_requests();
+    test_create_dm();
     test_errors();
     test_429();
     test_buckets_and_global();

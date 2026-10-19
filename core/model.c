@@ -567,6 +567,119 @@ static int mentions_user(const JNode *msg, const char *user_id)
     return 0;
 }
 
+/* ---------------------------------------------------------------- direct messages */
+
+/* The pseudo-server for DMs, created if need be and moved to the front of the list. */
+static Guild *dm_guild(Model *m)
+{
+    int created;
+    Guild *g = guild_upsert(m, MODEL_DM_GUILD, &created);
+
+    if (g == NULL) {
+        return NULL;
+    }
+    if (created) {
+        Guild tmp;
+        int i = (int)(g - m->guilds);
+
+        copy_utf8(g->name, sizeof(g->name), "Direct Messages");
+        tmp = *g;
+        memmove(&m->guilds[1], &m->guilds[0], (size_t)i * sizeof(Guild));
+        m->guilds[0] = tmp;
+        g = &m->guilds[0];
+        push_change(m, MC_GUILDS, NULL, NULL, NULL);
+    }
+    return g;
+}
+
+static void dm_name(char *out, size_t cap, const JNode *chan, const char *self_id)
+{
+    const char *name = json_get_str(chan, "name", NULL);
+    const JNode *r = json_get(chan, "recipients");
+    const JNode *u;
+    size_t used = 0;
+
+    out[0] = '\0';
+    if (name != NULL && name[0] != '\0') {
+        copy_utf8(out, cap, name);
+        return;
+    }
+    for (u = r != NULL ? r->first : NULL; u != NULL; u = u->next) {
+        const char *n = user_display(u);
+        size_t l = strlen(n);
+
+        if (strcmp(json_get_str(u, "id", ""), self_id) == 0) {
+            continue;
+        }
+        if (used > 0 && used + 2 < cap) {
+            out[used++] = ',';
+            out[used++] = ' ';
+        }
+        if (used + l + 1 > cap) {
+            break;
+        }
+        memcpy(out + used, n, l);
+        used += l;
+        out[used] = '\0';
+    }
+    if (out[0] == '\0') {
+        copy_utf8(out, cap, "unknown");
+    }
+}
+
+void model_ingest_private_channel(Model *m, const JNode *chan)
+{
+    const char *id = id_of(chan, "id");
+    int type = int_of(chan, "type", -1), created;
+    Guild *g;
+    Channel *c;
+
+    if (id == NULL || (type != CH_DM && type != CH_GROUP_DM)) {
+        return;
+    }
+    g = dm_guild(m);
+    if (g == NULL) {
+        return;
+    }
+    c = channel_upsert(g, id, &created);
+    if (c == NULL) {
+        return;
+    }
+    c->type = type;
+    c->position = 0;
+    c->parent_id[0] = '\0';
+    dm_name(c->name, sizeof(c->name), chan, m->user_id);
+    sort_channels(g);
+    push_change(m, MC_CHANNELS, g->id, NULL, NULL);
+}
+
+/* A message arrived in a DM we have no channel for: make the channel from what the message tells us. */
+static Channel *dm_from_message(Model *m, const char *cid, const JNode *author)
+{
+    Guild *g;
+    Channel *c;
+    int created;
+
+    g = dm_guild(m);
+    if (g == NULL) {
+        return NULL;
+    }
+    c = channel_upsert(g, cid, &created);
+    if (c == NULL) {
+        return NULL;
+    }
+    c->type = CH_DM;
+    c->position = 0;
+    if (strcmp(json_get_str(author, "id", ""), m->user_id) == 0) {
+        copy_utf8(c->name, sizeof(c->name), "conversation");      /* we spoke first, from another client */
+    } else {
+        copy_utf8(c->name, sizeof(c->name), user_display(author));
+    }
+    sort_channels(g);
+    push_change(m, MC_CHANNELS, g->id, NULL, NULL);
+    return model_find_channel(m, cid);
+}
+
 void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
 {
     const char *id = id_of(msg, "id"), *cid = id_of(msg, "channel_id"), *aid;
@@ -576,7 +689,14 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     char *text;
     int at, bt;
 
-    if (id == NULL || cid == NULL || author == NULL || author->type != J_OBJ || (c = model_find_channel(m, cid)) == NULL) {
+    if (id == NULL || cid == NULL || author == NULL || author->type != J_OBJ) {
+        return;
+    }
+    c = model_find_channel(m, cid);
+    if (c == NULL && json_get(msg, "guild_id") == NULL) {
+        c = dm_from_message(m, cid, author);              /* a conversation we had not heard of yet */
+    }
+    if (c == NULL) {
         return;
     }
     text = render_text(m, msg);
@@ -640,8 +760,8 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
         push_change(m, MC_MESSAGE_ADDED, c->guild_id, c->id, id);
         if (at == c->nmsgs - 1 && strcmp(tmp.author_id, m->user_id) != 0) {
             c->unread++;
-            if (mentions_user(msg, m->user_id)) {
-                c->mentions++;
+            if (mentions_user(msg, m->user_id) || c->type == CH_DM || c->type == CH_GROUP_DM) {
+                c->mentions++;                           /* a direct message is always addressed to us */
             }
             push_change(m, MC_UNREAD, c->guild_id, c->id, NULL);
         }
@@ -833,7 +953,7 @@ static void on_ready(Model *m, const GwEvent *ev)
     copy_utf8(m->user_id, sizeof(m->user_id), ev->user_id);
     copy_utf8(m->user_name, sizeof(m->user_name), ev->name);
     for (i = 0; i < m->nguilds; i++) {
-        m->guilds[i].stale = 1;
+        m->guilds[i].stale = strcmp(m->guilds[i].id, MODEL_DM_GUILD) != 0;
     }
     for (o = list != NULL ? list->first : NULL; o != NULL; o = o->next) {
         id = id_of(o, "id");
@@ -853,6 +973,10 @@ static void on_ready(Model *m, const GwEvent *ev)
         if (m->guilds[i].stale) {
             guild_remove(m, i);
         }
+    }
+    list = json_get(ev->d, "private_channels");        /* user accounts get their DMs here; bots get none */
+    for (o = list != NULL ? list->first : NULL; o != NULL; o = o->next) {
+        model_ingest_private_channel(m, o);
     }
     push_change(m, MC_GUILDS, NULL, NULL, NULL);
 }
@@ -901,9 +1025,25 @@ static void on_guild_delete(Model *m, const JNode *d)
 static void on_channel(Model *m, const char *name, const JNode *d)
 {
     const char *gid = id_of(d, "guild_id"), *id = id_of(d, "id");
-    Guild *g = gid != NULL ? model_find_guild(m, gid) : NULL;
+    Guild *g;
     int i, type = int_of(d, "type", -1);
 
+    if (gid == NULL && (type == CH_DM || type == CH_GROUP_DM)) {              /* a direct message */
+        g = model_find_guild(m, MODEL_DM_GUILD);
+        if (strcmp(name, "CHANNEL_DELETE") != 0) {
+            model_ingest_private_channel(m, d);
+        } else if (g != NULL && id != NULL) {
+            for (i = 0; i < g->nch; i++) {
+                if (strcmp(g->ch[i].id, id) == 0) {
+                    channel_remove(g, i);
+                    push_change(m, MC_CHANNELS, g->id, NULL, NULL);
+                    break;
+                }
+            }
+        }
+        return;
+    }
+    g = gid != NULL ? model_find_guild(m, gid) : NULL;
     if (g == NULL || id == NULL) {
         return;
     }

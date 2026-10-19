@@ -5,8 +5,8 @@
  * results (the server list, a channel list, message history), and it tells the UI what changed through a
  * queue of ModelChange records.
  *
- * Only guild text (0), announcement (5) and category (4) channels are kept; threads, voice, forums and DMs
- * are ignored in v0.1.  Channel visibility is NOT filtered by permissions (that needs role and overwrite
+ * Guild text (0), announcement (5) and category (4) channels are kept, and direct messages (1) and group DMs (3)
+ * under the pseudo-server "@me"; threads, voice and forums are ignored.  Channel visibility is NOT filtered by permissions (that needs role and overwrite
  * arithmetic); a channel the bot cannot see simply fails with a 403 when opened.
  *
  * Message text is stored ready to display: user, role and channel mentions and custom emoji are replaced
@@ -25,7 +25,9 @@
 #define MODEL_MAX_MESSAGES 200       /* kept per channel; older ones fall off */
 #define MODEL_MAX_CHANGES 128
 
-enum { CH_TEXT = 0, CH_CATEGORY = 4, CH_ANNOUNCEMENT = 5 };
+enum { CH_TEXT = 0, CH_DM = 1, CH_GROUP_DM = 3, CH_CATEGORY = 4, CH_ANNOUNCEMENT = 5 };
+
+#define MODEL_DM_GUILD "@me"            /* the pseudo-server that holds the direct-message channels */
 
 typedef struct {
     char id[24];
@@ -101,6 +103,9 @@ void model_ingest_guilds(Model *m, const JNode *arr);
 void model_ingest_channels(Model *m, const char *guild_id, const JNode *arr);
 void model_ingest_history(Model *m, const char *channel_id, const JNode *arr);
 void model_ingest_message(Model *m, const JNode *msg, int from_gateway);
+/* A direct-message channel object (from READY, CHANNEL_CREATE, or the reply to opening a DM): it goes into the
+ * "Direct Messages" pseudo-server (MODEL_DM_GUILD), created on first use and kept first in the list. */
+void model_ingest_private_channel(Model *m, const JNode *chan);
 
 Guild *model_find_guild(Model *m, const char *id);
 Channel *model_find_channel(Model *m, const char *channel_id);

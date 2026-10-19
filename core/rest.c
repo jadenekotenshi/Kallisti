@@ -262,6 +262,28 @@ long rest_post_message(RestClient *rc, const char *channel_id, const char *conte
     return id;
 }
 
+long rest_create_dm(RestClient *rc, const char *user_id)
+{
+    JWriter w;
+    long id;
+
+    if (!valid_id(user_id)) {
+        return REST_E_BAD;
+    }
+    jw_init(&w);
+    jw_begin_obj(&w);
+    jw_key(&w, "recipient_id");
+    jw_str(&w, user_id);
+    jw_end_obj(&w);
+    if (w.failed) {
+        jw_free(&w);
+        return REST_E_FULL;
+    }
+    id = queue_job(rc, REST_CREATE_DM, "POST", "/users/@me/channels", w.buf);
+    jw_free(&w);
+    return id;
+}
+
 /* ---------------------------------------------------------------- rate limits */
 
 static RestBucket *find_bucket(RestClient *rc, const char *route)

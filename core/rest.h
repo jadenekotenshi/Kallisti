@@ -37,7 +37,7 @@
 /* queueing errors (a call's id is always positive) */
 enum { REST_E_BAD = -1, REST_E_TOO_LONG = -2, REST_E_FULL = -3 };
 
-enum { REST_ME = 1, REST_GATEWAY_BOT, REST_GUILDS, REST_CHANNELS, REST_MESSAGES, REST_POST_MESSAGE };
+enum { REST_ME = 1, REST_GATEWAY_BOT, REST_GUILDS, REST_CHANNELS, REST_MESSAGES, REST_POST_MESSAGE, REST_CREATE_DM };
 
 typedef struct {
     int used;
@@ -110,6 +110,9 @@ long rest_get_channels(RestClient *rc, const char *guild_id);
 long rest_get_messages(RestClient *rc, const char *channel_id, int limit, const char *before);
 /* content is UTF-8, 1..2000 characters, not only whitespace. */
 long rest_post_message(RestClient *rc, const char *channel_id, const char *content);
+/* Opens (or finds) the direct-message channel with a user: POST /users/@me/channels. The reply is a channel
+ * object. A bot can only do this for people it shares a server with. */
+long rest_create_dm(RestClient *rc, const char *user_id);
 
 /* Builds the next request that may go out now into *req (already http_req_init()ed by this function) and
  * sets *id to its call.  Returns 1, or 0 if there is nothing to send (yet, or a request is in flight). */

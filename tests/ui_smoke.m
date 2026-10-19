@@ -9,6 +9,7 @@
 #import <Cocoa/Cocoa.h>
 #import "AppController.h"
 #import "SecretField.h"
+#import "ChannelWindow.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -47,6 +48,25 @@ static BOOL hasHistory(AppController *app)
 static BOOL hasHello(AppController *app)
 {
     return [[[app mainController] messageString] rangeOfString:@"hello from the test"].location != NSNotFound;
+}
+
+static BOOL hasWindowMsg(AppController *app)
+{
+    ChannelWindow *w = [app windowForChannel:@"200"];
+
+    return w != nil && [[w messageString] rangeOfString:@"from the window"].location != NSNotFound;
+}
+
+static BOOL hasDM(AppController *app)
+{
+    NSArray *labels = [[app mainController] listLabels];
+
+    return [labels count] > 1 && [[labels objectAtIndex:0] isEqualToString:@"- Direct Messages"];
+}
+
+static BOOL hasDMSelected(AppController *app)
+{
+    return [[[app mainController] currentChannel] isEqualToString:@"900"];
 }
 
 static unsigned countOf(NSString *hay, NSString *needle)
@@ -152,6 +172,33 @@ int main(int argc, char **argv)
     }
     CHECK(countOf([main messageString], @"hello from the test") == 1);
     CHECK([[main messageString] rangeOfString:@"Kallisti-bot: hello from the test"].location != NSNotFound);
+
+    /* a channel window of its own shows the same messages and takes input too */
+    {
+        ChannelWindow *w;
+
+        [app openWindowForChannel:@"200"];
+        w = [app windowForChannel:@"200"];
+        CHECK(w != nil && [app windowForChannel:@"999"] == nil);
+        CHECK([[w messageString] rangeOfString:@"hello from the test"].location != NSNotFound);
+        [app openWindowForChannel:@"200"];                       /* a second request reuses the window */
+        CHECK([[app windowForChannel:@"200"] isEqual:w]);
+        [w typeText:@"from the window"];
+        CHECK(waitFor(hasWindowMsg, app, 10.0));
+        CHECK(countOf([w messageString], @"from the window") == 1 && countOf([main messageString], @"from the window") == 1);
+        [w closeWindow];
+        [app channelWindowClosed:w];
+        CHECK([app windowForChannel:@"200"] == nil);
+    }
+
+    /* a DM from a stranger lands in Direct Messages, first in the list, as a mention */
+    [main typeText:@"dmme"];
+    CHECK(waitFor(hasDM, app, 10.0));
+    labels = [main listLabels];
+    CHECK([[labels objectAtIndex:0] isEqualToString:@"- Direct Messages"] && [[labels objectAtIndex:1] isEqualToString:@"  @eight (1!)"]);
+    /* starting a DM by user id selects the new conversation */
+    [app dmController:nil didSubmitUserId:@"7"];
+    CHECK(waitFor(hasDMSelected, app, 10.0));
 
     /* a channel we cannot read: the error shows in the window, nothing breaks */
     [main selectChannelWithId:@"201"];
