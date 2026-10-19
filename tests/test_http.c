@@ -300,19 +300,19 @@ static void test_errors(void)
     for (i = 0; bad[i] != NULL; i++) {
         /* 3e8 (1000 bytes) is within max_body; it simply never completes, so only EOF reports the error */
         rc = run(bad[i], strlen(bad[i]), 3, 0, 1000, 1, &r, &consumed);
-        CHECK(rc == HTTP_ERROR && r.err[0] != '\0');
+        CHECK(rc == HTTP_FAILED && r.err[0] != '\0');
         http_resp_free(&r);
     }
 
     /* truncated: connection closed in the middle of a Content-Length body, and in the headers */
     rc = run("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort", strlen("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort"), 8, 0, 1000, 1, &r, &consumed);
-    CHECK(rc == HTTP_ERROR);
+    CHECK(rc == HTTP_FAILED);
     http_resp_free(&r);
     rc = run("HTTP/1.1 200 OK\r\nContent-Le", strlen("HTTP/1.1 200 OK\r\nContent-Le"), 8, 0, 1000, 1, &r, &consumed);
-    CHECK(rc == HTTP_ERROR);
+    CHECK(rc == HTTP_FAILED);
     http_resp_free(&r);
     rc = run("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhel", strlen("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhel"), 8, 0, 1000, 1, &r, &consumed);
-    CHECK(rc == HTTP_ERROR);
+    CHECK(rc == HTTP_FAILED);
     http_resp_free(&r);
     /* ...but a read-until-close body is complete at EOF */
     rc = run("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nabc", strlen("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nabc"), 8, 0, 1000, 1, &r, &consumed);
@@ -325,7 +325,7 @@ static void test_errors(void)
     memset(big + 24, 'a', HTTP_MAX_HEADER_BYTES);
     memcpy(big + 24 + HTTP_MAX_HEADER_BYTES, "\r\n\r\n", 5);
     rc = run(big, strlen(big), 4096, 0, 1000, 0, &r, &consumed);
-    CHECK(rc == HTTP_ERROR && strstr(r.err, "headers too large") != NULL);
+    CHECK(rc == HTTP_FAILED && strstr(r.err, "headers too large") != NULL);
     http_resp_free(&r);
     free(big);
 
@@ -336,15 +336,15 @@ static void test_errors(void)
         memset(text + 19, 'x', 200);
         text[219] = '\0';
         rc = run(text, 219, 50, 0, 100, 0, &r, &consumed);
-        CHECK(rc == HTTP_ERROR && strstr(r.err, "too large") != NULL);
+        CHECK(rc == HTTP_FAILED && strstr(r.err, "too large") != NULL);
         http_resp_free(&r);
     }
     /* feeding after an error or completion stays put */
     {
         size_t used;
         http_resp_init(&r, 1000, 0);
-        CHECK(http_resp_feed(&r, (const unsigned char *)"junk\r\n\r\n", 8, &used) == HTTP_ERROR);
-        CHECK(http_resp_feed(&r, (const unsigned char *)"more", 4, &used) == HTTP_ERROR && used == 0);
+        CHECK(http_resp_feed(&r, (const unsigned char *)"junk\r\n\r\n", 8, &used) == HTTP_FAILED);
+        CHECK(http_resp_feed(&r, (const unsigned char *)"more", 4, &used) == HTTP_FAILED && used == 0);
         http_resp_free(&r);
     }
 }
@@ -408,7 +408,7 @@ static void test_fuzz(void)
             if (rc == HTTP_NEED_MORE) {
                 rc = http_resp_eof(&r);
             }
-            CHECK(rc == HTTP_DONE || rc == HTTP_ERROR);
+            CHECK(rc == HTTP_DONE || rc == HTTP_FAILED);
             http_resp_free(&r);
         }
     }

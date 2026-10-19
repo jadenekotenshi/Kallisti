@@ -116,7 +116,7 @@ long rest_post_message(RestClient *rc, const char *channel_id, const char *conte
 int rest_next_request(RestClient *rc, KMs now, HttpReq *req, long *id);
 /* The reply to the request in flight, complete (HTTP_DONE). */
 void rest_response(RestClient *rc, KMs now, const HttpResp *resp);
-/* The request in flight got no usable reply (connect/TLS/read failure, HTTP_ERROR, early EOF). */
+/* The request in flight got no usable reply (connect/TLS/read failure, HTTP_FAILED, early EOF). */
 void rest_failed(RestClient *rc, KMs now, const char *why);
 int rest_next_result(RestClient *rc, RestResult *res);
 /* Milliseconds until rest_next_request() may produce something (0 = now), or -1 if nothing is queued or a

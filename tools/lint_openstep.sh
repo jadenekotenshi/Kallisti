@@ -46,10 +46,10 @@ for f in core/*.c app/*.m; do
 done
 
 # --- the application icon: Workspace reads it from a __ICON segment linked into the executable ---
-if [ ! -f app/RatChat.iconheader ] || [ ! -f app/RatChat.tiff ]; then
-    echo "LINT: app/RatChat.iconheader and app/RatChat.tiff are both required (Workspace icon)"; status=1
-elif ! awk -F'\t' 'NF != 4 || ($1 != "F" && $1 != "S") { bad = 1 } END { exit bad }' app/RatChat.iconheader; then
-    echo "LINT: app/RatChat.iconheader lines must be 4 TAB-separated fields starting F or S"; status=1
+if [ ! -f app/Kallisti.iconheader ] || [ ! -f app/Kallisti.tiff ]; then
+    echo "LINT: app/Kallisti.iconheader and app/Kallisti.tiff are both required (Workspace icon)"; status=1
+elif ! awk -F'\t' 'NF != 4 || ($1 != "F" && $1 != "S") { bad = 1 } END { exit bad }' app/Kallisti.iconheader; then
+    echo "LINT: app/Kallisti.iconheader lines must be 4 TAB-separated fields starting F or S"; status=1
 fi
 grep -q "__ICON" Makefile.openstep || { echo "LINT: Makefile.openstep does not link the __ICON segment"; status=1; }
 

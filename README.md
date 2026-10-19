@@ -3,10 +3,12 @@
 A native Discord client for OPENSTEP 4.2, in C89/Objective-C. Fifth in the family with
 [StepSSH](https://github.com/jadenekotenshi/StepSSH), [StepTTY](https://github.com/jadenekotenshi/StepTTY),
 [RatChat](https://github.com/jadenekotenshi/RatChat) and StepAmp: it vendors RatChat's crypto and TLS 1.2
-core (copy-and-diverge, not a shared library) and will reuse RatChat's UI patterns (one window per channel,
-a scrolling message log, a single-line input field).
+core (copy-and-diverge, not a shared library) and reuses its hardware-proven AppKit patterns (hand-built
+windows, a polled run-loop timer, the entropy-seeding panel). One window shows every server and channel.
 
-**Status: scaffolding.** Nothing connects to Discord yet. What exists so far:
+**Status: v0.1.0 written, not yet run on OPENSTEP.** The engine is complete and tested on the development
+host, including live against discord.com; the AppKit front end builds and runs against a fake Discord under the
+modern Cocoa, but the OPENSTEP build (`Makefile.openstep`) has never been tried on real hardware. What exists:
 
 - `core/` -- the crypto/TLS stack from RatChat (AES-GCM, ChaCha20-Poly1305, SHA-1/2, X25519, P-256, RSA,
   X.509, TLS 1.2 client), unchanged apart from dropping the IRC and DCC parts.
@@ -49,11 +51,22 @@ before any OPENSTEP code:
    a change queue for the UI, unread/mention counters, mentions/emoji/attachments rendered to plain text, and
    merging that survives a fresh READY. Threads, voice, DMs and permission filtering are out of v0.1.
 
-Then the app: connection sheet (token), a server/channel list, one window per text channel with the message
-log and an input field, in the style of RatChat.
+6. ~~**Client engine** (`core/client.c`, `core/netconn.c`)~~ -- done: `netconn` is one polled non-blocking TCP
+   connection with the TLS engine and certificate validation on top; `client` runs the gateway session and the
+   REST queue over two such connections (reconnect and resume by itself, an idle keep-alive connection that
+   the server dropped is re-opened once transparently), checks the token with `GET /users/@me` before the
+   gateway so a bad token is named at once, and feeds the model. `kc_tick()` from a timer is all an app does.
+7. ~~**The app** (`app/`)~~ -- written: a sign-in panel (the token in a bullet-only field with paste, "remember"
+   and a clearly labelled user-token checkbox), then one window: servers and channels on the left (click a
+   server to fold it; unread counts, `!` when you were mentioned), messages on the right with local-time stamps,
+   day separators and coloured names, a field to type into, and a status line. Closing the window quits.
+   `core/kprefs.c` keeps `~/.kallisti/prefs` (mode 600; the token only if you ticked "remember").
 
 **v0.1 scope:** connect, list servers and their text channels, read live messages, send messages. No DMs,
-attachments, reactions, embeds beyond plain text, or voice.
+attachments, reactions, embeds beyond plain text, or voice. Known limits: characters outside the Basic
+Multilingual Plane (most emoji) show as `?`; threads and voice channels are not listed; channels are not
+filtered by the bot's permissions (opening one it cannot read says so in the message view); user-token mode
+is untested (no intents are sent for it and nothing else differs).
 
 ## Logging in: bot tokens and user tokens
 
@@ -61,9 +74,9 @@ attachments, reactions, embeds beyond plain text, or voice.
   Portal, invite it to your server, and paste its token into Kallisti. The bot only sees servers it has been
   added to, cannot act as your personal account, and has no DMs with other users. To read message text the
   bot needs the **Message Content** privileged intent switched on in the portal.
-- **User token (opt-in, later).** Logging in as a personal account from a third-party client is against
-  Discord's terms of service and can get the account banned. Kallisti is being designed so a token can be
-  either kind, but user-token mode will be a clearly labelled opt-in and is not the default.
+- **User token (opt-in).** Logging in as a personal account from a third-party client is against Discord's
+  terms of service and can get the account banned. Kallisti accepts either kind of token, but user-token mode
+  is a clearly labelled checkbox that asks for confirmation, is off by default, and is experimental.
 
 Tokens are secrets: Kallisti will never log them, and tests read them from a local file or environment
 variable, never from the repository.
@@ -101,6 +114,20 @@ Host side (macOS/Linux), strict C89 flags approximating gcc 2.7.2:
     make discord-smoke # the whole stack against the real discord.com / gateway.discord.gg (needs network, no token)
     make gw-smoke      # the gateway end to end against a scripted fake gateway, plain and TLS (same venv)
     make SAN=1 test    # the same under AddressSanitizer + UBSan
-    make lint          # OPENSTEP-compatibility checks (the app/ part needs Makefile.openstep, not yet here)
+    make client-smoke  # the client engine end to end against a scripted fake Discord, plain and TLS
+    make check-objc    # syntax-check app/*.m against the modern SDK (never linked)
+    make ui-smoke      # the real windows and controllers, driven like a user, against the fake Discord (macOS only)
+    make lint          # OPENSTEP-compatibility checks
 
-The OPENSTEP build (`Makefile.openstep`, the app, and a fat build for i386/m68k/SPARC) comes with the app.
+On OPENSTEP (NeXT make or GNU make, from this directory):
+
+    make -f Makefile.openstep test   # the C unit tests on the real compiler -- run this first
+    make -f Makefile.openstep        # Kallisti.app
+    make -f Makefile.openstep fat    # i386 + m68k + SPARC fat binary (three tuned passes, as in the siblings)
+    make -f Makefile.openstep pkg    # Kallisti.pkg for Installer.app (dist / pkg-fat / dist-fat too)
+
+`make dist` on the Mac packs the sources into `dist/KALLISTI.TAR` and an ISO to attach to the VM. If the app does
+nothing when launched from Workspace, `touch ~/.Kallisti.trace` and launch again: it narrates startup there.
+The first connection needs random numbers: with no `/dev/urandom` the app asks you to move the mouse until a
+bar fills (the seed is then kept in `~/.kallisti/rng_seed`). Put updated CA certificates in `/usr/local/ssl`
+to override the compiled-in roots, and use *Discord > Ignore Certificate Dates* only if the machine's clock is wrong.

@@ -306,7 +306,7 @@ static int resp_fail(HttpResp *r, const char *msg)
         sprintf(r->err, "%.80s", msg);
     }
     r->state = ST_ERROR;
-    return HTTP_ERROR;
+    return HTTP_FAILED;
 }
 
 const char *http_resp_header(const HttpResp *r, const char *name)
@@ -626,7 +626,7 @@ int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *u
         return HTTP_DONE;
     }
     if (r->state == ST_ERROR) {
-        return HTTP_ERROR;
+        return HTTP_FAILED;
     }
     while (i < len) {
         switch (r->state) {
@@ -657,7 +657,7 @@ int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *u
                     rc = head_complete(r);
                     if (rc < 0) {
                         *used = i;
-                        return HTTP_ERROR;
+                        return HTTP_FAILED;
                     }
                     if (rc == 1) {
                         r->state = ST_DONE;
@@ -679,7 +679,7 @@ int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *u
             }
             if (body_append(r, data + i, n) != HTTP_NEED_MORE) {
                 *used = i;
-                return HTTP_ERROR;
+                return HTTP_FAILED;
             }
             i += n;
             r->left -= n;
@@ -693,7 +693,7 @@ int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *u
         case ST_BODY_CLOSE:
             if (body_append(r, data + i, len - i) != HTTP_NEED_MORE) {
                 *used = i;
-                return HTTP_ERROR;
+                return HTTP_FAILED;
             }
             i = len;
             break;
@@ -707,7 +707,7 @@ int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *u
                 }
                 if (parse_chunk_size(r) != HTTP_NEED_MORE) {
                     *used = i;
-                    return HTTP_ERROR;
+                    return HTTP_FAILED;
                 }
             } else {
                 if (r->sizeline_len + 1 >= sizeof(r->sizeline)) {
@@ -725,7 +725,7 @@ int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *u
             }
             if (body_append(r, data + i, n) != HTTP_NEED_MORE) {
                 *used = i;
-                return HTTP_ERROR;
+                return HTTP_FAILED;
             }
             i += n;
             r->left -= n;
@@ -768,7 +768,7 @@ int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *u
 
         default:
             *used = i;
-            return HTTP_ERROR;
+            return HTTP_FAILED;
         }
     }
     *used = i;
@@ -787,5 +787,5 @@ int http_resp_eof(HttpResp *r)
     if (r->state != ST_ERROR) {
         resp_fail(r, "connection closed before the response was complete");
     }
-    return HTTP_ERROR;
+    return HTTP_FAILED;
 }

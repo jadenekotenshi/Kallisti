@@ -265,6 +265,32 @@ static void test_lifecycle(void)
     gw_free(&gw);
 }
 
+/* a user account has no intents: the IDENTIFY then leaves the field out entirely */
+static void test_no_intents(void)
+{
+    Gateway gw;
+    WsClient ws;
+    Sent s[4];
+    JDoc d;
+    JNode *n;
+    Cmd c[4];
+
+    gw_init(&gw, "USERTOKEN", 0);
+    gw.rng = gw_test_rng;
+    gw_start(&gw, 0);
+    take_cmds(&gw, c, 4);
+    open_ws(&ws);
+    gw_connection_opened(&gw, &ws, 0);
+    feed(&gw, "{\"op\":10,\"d\":{\"heartbeat_interval\":40000}}", 5);
+    CHECK(drain(&ws, s, 4) == 1 && sent_op(&s[0]) == 2);
+    n = parse_sent(&s[0], &d);
+    CHECK(n != NULL && strcmp(json_get_str(json_get(n, "d"), "token", ""), "USERTOKEN") == 0);
+    CHECK(json_get(json_get(n, "d"), "intents") == NULL && json_get(json_get(n, "d"), "properties") != NULL);
+    json_free(&d);
+    gw_free(&gw);
+    ws_free(&ws);
+}
+
 static void test_resume_paths(void)
 {
     Gateway gw;
@@ -728,6 +754,7 @@ static void test_fuzz(void)
 int main(void)
 {
     test_lifecycle();
+    test_no_intents();
     test_resume_paths();
     test_close_codes();
     test_backoff_and_failures();

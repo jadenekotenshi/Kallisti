@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots kprefs ktime
 
 all: test
 
@@ -84,12 +84,55 @@ trust-smoke:
 	build/trust_smoke tests/http_smoke_server.py 15917 build/trustpki/chain.pem build/trustpki/leaf.key \
 	    build/trustpki/ca.pem build/trustpki/other.pem
 
+# The client engine end to end against a scripted fake Discord, plain and TLS (validated against a test CA).
+client-smoke: build/venv/bin/python
+	tests/trust_smoke_setup.sh
+	$(CC) -w -g $(SANFLAGS) -Icore tests/client_smoke.c core/*.c -o build/client_smoke
+	build/client_smoke tests/client_smoke_server.py build/venv/bin/python 15920 15930 build/trustpki/chain.pem \
+	    build/trustpki/leaf.key build/trustpki/ca.pem
+
 # The whole stack against the real Discord: TLS validation with the compiled-in roots, REST, WebSocket (needs
 # network; no token needed -- it only reads the public /gateway endpoint and the gateway's HELLO).
 discord-smoke:
 	$(CC) -w -g $(SANFLAGS) -Icore tests/discord_smoke.c core/*.c -o build/discord_smoke
 	build/discord_smoke
 
-.PHONY: all test lint clean tls-smoke http-smoke ws-smoke gw-smoke trust-smoke discord-smoke
+# Package the sources for transfer into the OPENSTEP VM.
+#   dist/KALLISTI.TAR  plain ustar archive (extract with:  tar xf KALLISTI.TAR)
+#   dist/KALLISTI.ISO  a CD image containing KALLISTI.TAR (attach it as a CD-ROM in the VM)
+# -b 20 matters: old tar implementations read archives in fixed 10240-byte records, and a short final record
+# makes their first read() look like premature EOF.
+DISTFILES = README.md Makefile.openstep core app tests tools
+dist:
+	mkdir -p dist
+	COPYFILE_DISABLE=1 tar --format ustar -b 20 --exclude '*.o' --exclude '.DS_Store' \
+	    -cf dist/KALLISTI.TAR $(DISTFILES)
+	rm -rf dist/iso && mkdir -p dist/iso && cp dist/KALLISTI.TAR dist/iso/
+	rm -f dist/KALLISTI.ISO dist/KALLISTI.iso dist/KALLISTI.iso.iso
+	hdiutil makehybrid -iso -iso-volume-name KALLISTI -o dist/KALLISTI dist/iso >/dev/null
+	f=$$(ls dist/KALLISTI.* | grep -iv 'KALLISTI.TAR' | head -1); mv "$$f" dist/KALLISTI.ISO
+	rm -rf dist/iso
+	@ls -l dist/KALLISTI.TAR dist/KALLISTI.ISO
+
+# Syntax-check the Objective-C against the modern SDK (never linked or run).
+check-objc:
+	for f in app/*.m; do \
+	  echo "check $$f"; \
+	  $(CC) -fsyntax-only -x objective-c -fno-objc-arc -Wall -Wno-deprecated-declarations \
+	    -Wdeclaration-after-statement -Wno-unused-parameter -Iapp -Icore $$f || exit 1; \
+	done
+
+# The real AppController/MainController stack, with the modern Cocoa on this Mac, against the fake Discord.
+UI_SRC = app/AppController.m app/LoginController.m app/MainController.m app/SecretField.m app/UIHelpers.m
+ui-smoke: build/venv/bin/python
+	mkdir -p build/ui
+	for f in tests/ui_smoke.m $(UI_SRC); do \
+	  $(CC) -c -x objective-c -fno-objc-arc -w -g -Iapp -Icore $$f -o build/ui/$$(basename $$f .m).o || exit 1; \
+	done
+	for f in core/*.c; do $(CC) -c -w -g -Icore $$f -o build/ui/c_$$(basename $$f .c).o || exit 1; done
+	$(CC) build/ui/*.o -framework Cocoa -o build/ui_smoke
+	build/ui_smoke tests/client_smoke_server.py build/venv/bin/python 15940
+
+.PHONY: all test lint clean tls-smoke http-smoke ws-smoke gw-smoke trust-smoke discord-smoke client-smoke check-objc ui-smoke dist
 
 .SECONDARY:

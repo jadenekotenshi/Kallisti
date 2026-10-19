@@ -177,8 +177,10 @@ static void send_auth(Gateway *gw)
         jw_begin_obj(&w);
         jw_key(&w, "token");
         jw_str(&w, gw->token);
-        jw_key(&w, "intents");
-        jw_int(&w, gw->intents);
+        if (gw->intents != 0) {              /* user accounts have no intents */
+            jw_key(&w, "intents");
+            jw_int(&w, gw->intents);
+        }
         jw_key(&w, "properties");
         jw_begin_obj(&w);
         jw_key(&w, "os");

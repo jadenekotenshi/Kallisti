@@ -17,7 +17,7 @@
 #define HTTP_MAX_HEADER_BYTES 65536
 #define HTTP_MAX_TRAILER_BYTES 8192
 
-enum { HTTP_NEED_MORE = 0, HTTP_DONE = 1, HTTP_ERROR = -1 };
+enum { HTTP_NEED_MORE = 0, HTTP_DONE = 1, HTTP_FAILED = -1 };
 
 /* ---------------------------------------------------------------- URLs */
 
@@ -87,7 +87,7 @@ void http_resp_init(HttpResp *r, size_t max_body, int head_request);
 void http_resp_free(HttpResp *r);
 /* Consumes data[0..len): *used says how much (less than len only when the response ended earlier;
  * the rest belongs to whatever comes next, e.g. the WebSocket after a 101).  Returns HTTP_NEED_MORE,
- * HTTP_DONE or HTTP_ERROR (message in r->err). */
+ * HTTP_DONE or HTTP_FAILED (message in r->err). */
 int http_resp_feed(HttpResp *r, const unsigned char *data, size_t len, size_t *used);
 /* The peer closed the connection: finishes a read-until-close body, fails anything else incomplete. */
 int http_resp_eof(HttpResp *r);

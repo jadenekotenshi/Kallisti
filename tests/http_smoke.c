@@ -35,7 +35,7 @@ static int exchange(Conn *c, const char *method, const char *path, int port, int
 
     http_req_init(&q);
     if (http_req_begin(&q, method, path, "localhost", port, use_tls) != 0) {
-        return HTTP_ERROR;
+        return HTTP_FAILED;
     }
     if (hname != NULL) {
         http_req_header(&q, hname, hvalue);
@@ -43,7 +43,7 @@ static int exchange(Conn *c, const char *method, const char *path, int port, int
     if (http_req_end(&q, body, body ? strlen(body) : 0) != 0 ||
         conn_send(c, (const unsigned char *)q.buf, q.len) != 0) {
         http_req_free(&q);
-        return HTTP_ERROR;
+        return HTTP_FAILED;
     }
     http_req_free(&q);
 
@@ -51,14 +51,14 @@ static int exchange(Conn *c, const char *method, const char *path, int port, int
     while (rc == HTTP_NEED_MORE) {
         n = conn_recv(c, buf, sizeof(buf));
         if (n < 0) {
-            return HTTP_ERROR;
+            return HTTP_FAILED;
         }
         if (n == 0) {
             return http_resp_eof(r);
         }
         rc = http_resp_feed(r, buf, (size_t)n, &used);
         if (rc == HTTP_DONE && used != (size_t)n) {
-            return HTTP_ERROR;           /* the server never pipelines: nothing may be left over */
+            return HTTP_FAILED;           /* the server never pipelines: nothing may be left over */
         }
     }
     return rc;
