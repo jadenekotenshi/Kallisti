@@ -28,11 +28,10 @@
 
 #include <stddef.h>
 #include "json.h"
+#include "kms.h"
 #include "ws.h"
 
-/* Milliseconds from any monotonic clock, 32 bits on every platform (OPENSTEP's long is 32 bits, the host's
- * is not): differences are taken modulo 2^32, so a wrapping clock is fine. */
-typedef unsigned int GwMs;
+typedef KMs GwMs;
 
 #define GW_DEFAULT_URL "wss://gateway.discord.gg/?v=10&encoding=json"
 

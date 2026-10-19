@@ -38,7 +38,13 @@ before any OPENSTEP code:
    a missed ACK drops the connection, IDENTIFY/RESUME, op 7/9, backoff, close-code policy where 4004/4010-4014
    are fatal) that hands the app READY/RESUMED/DISPATCH/DISCONNECTED/FATAL events. Drivers must drain
    `gw_next_event()` after every `gw_handle_ws_event()`, since a DISPATCH's `d` lives only until the next frame.
-   Still to come: the REST layer (post message, rate-limit headers, 429) and the guild/channel/message model.
+4. ~~**REST layer** (`core/rest.c`)~~ -- done: a sans-I/O request queue (one request in flight, FIFO) for
+   `GET /users/@me`, `/gateway/bot`, `/users/@me/guilds`, `/guilds/{id}/channels`, `/channels/{id}/messages` and
+   `POST /channels/{id}/messages`. Ids are validated as digit strings, message content as UTF-8 of 1-2000
+   characters. It remembers `X-RateLimit-*` per route and waits instead of earning a 429; a 429 is waited out
+   (up to four times, and not at all past a minute, which is reported); GETs are retried on 5xx and transport
+   failures, POSTs never (the message may have been delivered). Bot tokens go out as `Bot <token>`, user tokens bare.
+   Still to come: the guild/channel/message model fed by the gateway and REST results.
 
 Then the app: connection sheet (token), a server/channel list, one window per text channel with the message
 log and an input field, in the style of RatChat.
