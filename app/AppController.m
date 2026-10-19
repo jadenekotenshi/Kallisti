@@ -88,6 +88,9 @@ static KMs app_now_ms(void)
 - (void)showNewDM:(id)sender;
 - (void)closeChannelWindows;
 - (void)showImages:(id)sender;
+- (void)toggleInline:(id)sender;
+- (void)applyInlineSetting;
+- (void)reloadAllMessages;
 - (void)closeImageWindows;
 - (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target;
 @end
@@ -106,6 +109,8 @@ static KMs app_now_ms(void)
     channelWindows = [[NSMutableArray alloc] init];
     imageWindows = [[NSMutableArray alloc] init];
     imageNames = [[NSMutableDictionary alloc] init];
+    thumbs = [[NSMutableDictionary alloc] init];
+    thumbsAsked = [[NSMutableSet alloc] init];
     return self;
 }
 
@@ -118,7 +123,7 @@ static KMs app_now_ms(void)
     [mainController release];
     [channelWindows release];
     [dmController release];
-    [imageList release]; [imageWindows release]; [imageNames release];
+    [imageList release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release];
     [kallistiDir release]; [prefsPath release]; [rngSeedPath release];
     [entropyPanel release];
     [restHost release]; [gatewayURL release];
@@ -166,6 +171,8 @@ static KMs app_now_ms(void)
     [self addItem:@"New Direct Message..." action:@selector(showNewDM:) key:@"t" target:self toMenu:m];
     [self addItem:@"Open Channel in New Window" action:@selector(openCurrentInWindow:) key:@"o" target:self toMenu:m];
     [self addItem:@"Images in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
+    [self addItem:@"Show Images Inline (Experimental)" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
+    inlineItem = [m itemWithTitle:@"Show Images Inline (Experimental)"];
     [self addItem:@"Check Certificate Dates" action:@selector(toggleDates:) key:@"" target:self toMenu:m];
     datesItem = [m itemWithTitle:@"Check Certificate Dates"];
 
@@ -337,6 +344,7 @@ static KMs app_now_ms(void)
     }
     [mainController release];                           /* a new session has a new model */
     mainController = [[MainController alloc] initWithOwner:self model:kc_model(kc)];
+    [mainController setImageSource:self inline:inlineImages];
     [mainController show];
     [mainController setStatus:@"Starting..."];
     kc_start(kc, app_now_ms());
@@ -356,7 +364,7 @@ static KMs app_now_ms(void)
     KEvent ev;
     KImage img;
     ModelChange ch;
-    BOOL fatal = NO;
+    BOOL fatal = NO, thumbsArrived = NO;
     NSString *fatalText = nil;
     int i;
 
@@ -377,6 +385,16 @@ static KMs app_now_ms(void)
         NSString *name = [imageNames objectForKey:url];
         ImageWindow *w = nil;
 
+        if (img.tag == 1) {                                        /* a thumbnail for the message log */
+            NSImage *thumb = nil;
+
+            if (img.ok) thumb = [[[NSImage alloc] initWithData:[NSData dataWithBytes:img.tiff length:img.tiff_len]] autorelease];
+            [thumbs setObject:(thumb ? (id)thumb : (id)[NSNull null]) forKey:url];
+            [thumbsAsked removeObject:url];
+            free(img.tiff);
+            thumbsArrived = YES;
+            continue;
+        }
         if (img.ok) {
             NSData *data = [NSData dataWithBytes:img.tiff length:img.tiff_len];
 
@@ -395,6 +413,7 @@ static KMs app_now_ms(void)
         free(img.tiff);
         [imageNames removeObjectForKey:url];
     }
+    if (thumbsArrived) [self reloadAllMessages];
     while (kc && kc_next_change(kc, &ch)) {
         [mainController modelChanged:&ch];
         for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] modelChanged:&ch];
@@ -492,6 +511,8 @@ static KMs app_now_ms(void)
     if (w == nil) {
         w = [[[ChannelWindow alloc] initWithOwner:self model:kc_model(kc) channel:channelId] autorelease];
         [channelWindows addObject:w];
+        [w setImageSource:self inline:inlineImages];
+        [w reloadMessages];
         kc_open_channel(kc, [channelId cString]);
     }
     [w show];
@@ -512,6 +533,50 @@ static KMs app_now_ms(void)
 
 /* ---------------------------------------------------------------- pictures */
 
+- (void)reloadAllMessages
+{
+    int i;
+
+    [mainController reloadMessages];
+    for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] reloadMessages];
+}
+
+- (void)applyInlineSetting
+{
+    int i;
+
+    [mainController setImageSource:self inline:inlineImages];
+    for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] setImageSource:self inline:inlineImages];
+    [self reloadAllMessages];
+}
+
+- (BOOL)inlineImagesEnabled { return inlineImages; }
+
+- (void)setInlineImages:(BOOL)on
+{
+    inlineImages = on;
+    [inlineItem setTitle:on ? @"Show Images as Links Only" : @"Show Images Inline (Experimental)"];
+    if (mainController) [self applyInlineSetting];
+}
+
+- (void)toggleInline:(id)sender
+{
+    [self setInlineImages:!inlineImages];
+}
+
+/* The thumbnail for an attachment address if it is on hand; otherwise nil and a download is started. */
+- (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h
+{
+    id v = [thumbs objectForKey:url];
+
+    if (v != nil) return [v isKindOfClass:[NSImage class]] ? (NSImage *)v : nil;
+    if (kc && ![thumbsAsked containsObject:url] &&
+        kc_fetch_image_boxed(kc, [url cString], (unsigned long)w, (unsigned long)h, 320, 240, 1) == 0) {
+        [thumbsAsked addObject:url];
+    }
+    return nil;
+}
+
 - (void)closeImageWindows
 {
     int i;
@@ -519,6 +584,8 @@ static KMs app_now_ms(void)
     for (i = 0; i < (int)[imageWindows count]; i++) [[imageWindows objectAtIndex:i] closeWindow];
     [imageWindows removeAllObjects];
     [imageNames removeAllObjects];
+    [thumbs removeAllObjects];
+    [thumbsAsked removeAllObjects];
 }
 
 - (NSArray *)imageWindows { return imageWindows; }

@@ -38,6 +38,7 @@ typedef struct {
     char channels[4][24];
     int nchannels;
     int nimages, image_ok[8];
+    unsigned long image_tag[8];
     char image_err[8][160];
     unsigned long image_w[8], image_h[8];
     char image_url[8][512];
@@ -62,6 +63,7 @@ static void drain_events(KClient *kc, Seen *s)
     while (kc_next_image(kc, &im)) {
         if (s->nimages < 8) {
             s->image_ok[s->nimages] = im.ok;
+            s->image_tag[s->nimages] = im.tag;
             strcpy(s->image_err[s->nimages], im.error);
             s->image_w[s->nimages] = im.width;
             s->image_h[s->nimages] = im.height;
@@ -295,6 +297,19 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(!seen.image_ok[0] && strstr(seen.image_err[0], "404") != NULL);
         CHECK(!seen.image_ok[1] && strstr(seen.image_err[1], "PNG") != NULL);
         CHECK(seen.image_ok[2] && seen.image_ok[3] && seen.image_w[3] == 300);
+        /* a thumbnail box: the server insists on width=320&height=213 for a 2000x1333 picture in a 320x240 box;
+         * thumb2 sends the whole 300x200 picture whatever was asked, so the client shrinks it into 150x100 */
+        seen.nimages = 0;
+        sprintf(u, "%s/thumb", base);
+        CHECK(kc_fetch_image_boxed(&kc, u, 2000, 1333, 320, 240, 7) == 0);
+        CHECK(kc_fetch_image_boxed(&kc, u, 10, 10, 0, 240, 7) == -1 && kc_fetch_image_boxed(&kc, u, 10, 10, 320, 9999, 7) == -1);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_tag[0] == 7 && seen.image_w[0] == 300 && seen.image_h[0] == 200);   /* it fit */
+        seen.nimages = 0;
+        sprintf(u, "%s/thumb2", base);
+        CHECK(kc_fetch_image_boxed(&kc, u, 300, 200, 150, 100, 8) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_tag[0] == 8 && seen.image_w[0] == 150 && seen.image_h[0] == 100);   /* shrunk here */
         CHECK(kc_fetch_image(&kc, "ftp://nope/x.png", 0, 0) == -1 && kc_fetch_image(&kc, "garbage", 0, 0) == -1);
     }
 

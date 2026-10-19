@@ -62,11 +62,25 @@ before any OPENSTEP code:
    day separators and coloured names, a field to type into, and a status line. Closing the window quits.
    `core/kprefs.c` keeps `~/.kallisti/prefs` (mode 600; the token only if you ticked "remember").
 
-**v0.1 scope:** connect, list servers and their text channels, read live messages, send messages. No DMs,
-attachments, reactions, embeds beyond plain text, or voice. Known limits: characters outside the Basic
-Multilingual Plane (most emoji) show as `?`; threads and voice channels are not listed; channels are not
-filtered by the bot's permissions (opening one it cannot read says so in the message view); user-token mode
-is untested (no intents are sent for it and nothing else differs).
+8. **Channel windows, DMs and pictures** (`app/ChannelPane`, `ChannelWindow`, `DMController`, `ImageWindow`,
+   `ImageListController`; `core/png.c`, `inflate.c`, `img.c`):
+   - Double-click a channel in the list (or *Discord > Open Channel in New Window*) for a window of its own.
+   - Direct messages appear under a *Direct Messages* entry at the top of the list, as they arrive (a message
+     in an unknown DM creates the conversation) or, for a user-account token, from its READY. They always count as
+     mentions. *Discord > New Direct Message...* opens one by user ID. A bot can only DM people who share a server
+     with it and cannot list its DMs.
+   - Pictures: messages show `[image: cat.png 800x600]`; *Discord > Images in This Channel...* lists them and
+     opens one in its own window. Kallisti asks Discord's media proxy for a resized PNG, decodes it itself
+     (every PNG type, interlacing, transparency over white), and gives AppKit an uncompressed TIFF, so no JPEG,
+     GIF or WebP decoder is needed anywhere. *Show Images Inline (Experimental)* draws thumbnails inside the log
+     with `NSTextAttachment`, which is untested on OPENSTEP; leave it off if the log misbehaves.
+
+**v0.1 scope:** connect, list servers and their text channels, read live messages, send messages -- plus the
+three additions above. No reactions, embeds beyond plain text, or voice. Known limits: characters outside the
+Basic Multilingual Plane (most emoji) show as `?`; threads and voice channels are not listed; channels are not
+filtered by the bot's permissions (opening one it cannot read says so in the message view); animated GIFs show
+their first frame; user-token mode is untested (no intents are sent for it and nothing else differs). Decoding a
+large picture takes seconds on a 68040.
 
 ## Logging in: bot tokens and user tokens
 

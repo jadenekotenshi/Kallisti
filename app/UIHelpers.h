@@ -15,6 +15,10 @@ NSString *ui_string_from_utf8(const char *bytes);
 NSData   *ui_utf8_cstring(NSString *s);              /* bytes of s in UTF-8 plus a trailing NUL */
 #define UI_CPATH(s) ((const char *)[ui_utf8_cstring(s) bytes])
 
+/* A picture as a character in an attributed string (NSTextAttachment), for showing images inside the message log.
+ * [V] OpenStep builds it from a cell (-setAttachmentCell:); the modern SDK the host checks use has -setImage:. */
+NSAttributedString *ui_image_attachment(NSImage *image);
+
 /* [V] NSCalendarDate is standard OpenStep API (predates NSDateFormatter), but unlike NSDate/NSTimer
  * (already relied on throughout PTYSession/SSHSession's own poll loops, confirmed on real
  * hardware) it has not been exercised anywhere in these sibling projects before now -- confirm

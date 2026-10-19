@@ -613,19 +613,20 @@ static void gateway_pump(KClient *kc, KMs now)
 /* ---------------------------------------------------------------- picture downloads */
 
 /* The address to request: the attachment's own, plus the media proxy's format and size parameters. */
-static void fetch_url(char *out, size_t cap, const char *url, unsigned long w, unsigned long h)
+static void fetch_url(char *out, size_t cap, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
+                      unsigned long max_h)
 {
     char extra[96];
     unsigned long nw = w, nh = h;
 
-    if (w > 0 && h > 0 && (w > KC_IMAGE_MAX_W || h > KC_IMAGE_MAX_H)) {
+    if (w > 0 && h > 0 && (w > max_w || h > max_h)) {
         /* shrink to fit, keeping the proportions (the proxy treats width and height as a box) */
-        if (w * KC_IMAGE_MAX_H > h * KC_IMAGE_MAX_W) {
-            nw = KC_IMAGE_MAX_W;
-            nh = (h * KC_IMAGE_MAX_W + w / 2) / w;
+        if (w * max_h > h * max_w) {
+            nw = max_w;
+            nh = (h * max_w + w / 2) / w;
         } else {
-            nh = KC_IMAGE_MAX_H;
-            nw = (w * KC_IMAGE_MAX_H + h / 2) / h;
+            nh = max_h;
+            nw = (w * max_h + h / 2) / h;
         }
         if (nw < 1) nw = 1;
         if (nh < 1) nh = 1;
@@ -642,8 +643,17 @@ static void fetch_url(char *out, size_t cap, const char *url, unsigned long w, u
 
 int kc_fetch_image(KClient *kc, const char *url, unsigned long w, unsigned long h)
 {
+    return kc_fetch_image_boxed(kc, url, w, h, KC_IMAGE_MAX_W, KC_IMAGE_MAX_H, 0);
+}
+
+int kc_fetch_image_boxed(KClient *kc, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
+                         unsigned long max_h, unsigned long tag)
+{
     HttpUrl u;
 
+    if (max_w < 1 || max_h < 1 || max_w > KC_IMAGE_MAX_W || max_h > KC_IMAGE_MAX_H) {
+        return -1;
+    }
     if (kc->nfq >= KC_IMAGE_QUEUE || strlen(url) >= sizeof(kc->fq[0].url) - 100 || http_parse_url(url, &u) != 0 ||
         (u.tls && kc->trust == NULL)) {
         return -1;
@@ -651,6 +661,9 @@ int kc_fetch_image(KClient *kc, const char *url, unsigned long w, unsigned long 
     copy_str(kc->fq[kc->nfq].url, sizeof(kc->fq[0].url), url);
     kc->fq[kc->nfq].w = w;
     kc->fq[kc->nfq].h = h;
+    kc->fq[kc->nfq].max_w = max_w;
+    kc->fq[kc->nfq].max_h = max_h;
+    kc->fq[kc->nfq].tag = tag;
     kc->nfq++;
     return 0;
 }
@@ -678,6 +691,7 @@ static void fetch_result(KClient *kc, int ok, const char *error, unsigned char *
     memset(r, 0, sizeof(*r));
     copy_str(r->url, sizeof(r->url), kc->forig);
     r->ok = ok;
+    r->tag = kc->ftag;
     copy_str(r->error, sizeof(r->error), error);
     r->tiff = tiff;
     r->tiff_len = tiff_len;
@@ -733,7 +747,10 @@ static void fetch_pump(KClient *kc, KMs now)
 
     if (kc->fphase == 0 && kc->nfq > 0 && kc->nimgs < KC_IMAGE_QUEUE) {
         copy_str(kc->forig, sizeof(kc->forig), kc->fq[0].url);
-        fetch_url(kc->furl, sizeof(kc->furl), kc->fq[0].url, kc->fq[0].w, kc->fq[0].h);
+        kc->fmax_w = kc->fq[0].max_w;
+        kc->fmax_h = kc->fq[0].max_h;
+        kc->ftag = kc->fq[0].tag;
+        fetch_url(kc->furl, sizeof(kc->furl), kc->fq[0].url, kc->fq[0].w, kc->fq[0].h, kc->fmax_w, kc->fmax_h);
         for (i = 1; i < kc->nfq; i++) {
             kc->fq[i - 1] = kc->fq[i];
         }
@@ -837,7 +854,7 @@ static void fetch_pump(KClient *kc, KMs now)
             unsigned long w = 0, h = 0;
             const char *err = "ok";
 
-            if (img_png_to_tiff(kc->fresp.body, kc->fresp.body_len, KC_IMAGE_MAX_W, KC_IMAGE_MAX_H, &tiff, &tl, &w, &h, &err) == 0) {
+            if (img_png_to_tiff(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, &tiff, &tl, &w, &h, &err) == 0) {
                 fetch_result(kc, 1, "", tiff, tl, w, h);
             } else {
                 fetch_failed(kc, err);

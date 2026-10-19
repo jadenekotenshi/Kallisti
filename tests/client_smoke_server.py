@@ -102,6 +102,10 @@ async def rest_conn(reader, writer):
                     await writer.drain()
                 elif path == '/img/sized' and 'format=png&width=800&height=400' not in query:
                     await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'wrong size parameters: ' + query})
+                elif path == '/img/thumb' and 'format=png&width=320&height=213' not in query:
+                    await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'wrong thumbnail parameters: ' + query})
+                elif path == '/img/thumb2' and 'format=png&width=150&height=100' not in query:
+                    await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'wrong thumbnail parameters: ' + query})
                 elif 'format=png' not in query:
                     await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'no format=png: ' + query})
                 else:

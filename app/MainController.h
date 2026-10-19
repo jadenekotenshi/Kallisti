@@ -23,6 +23,8 @@
 - (void)modelChanged:(const ModelChange *)change;
 - (void)appendNotice:(NSString *)text;     /* a grey line at the end of the message view */
 - (NSString *)currentChannel;
+- (void)setImageSource:(id)source inline:(BOOL)showInline;
+- (void)reloadMessages;
 - (void)selectChannelWithId:(NSString *)channelId;
 /* Also used by the tests, which drive the window the way a user would. */
 - (NSArray *)listLabels;

@@ -119,3 +119,15 @@ NSString *ui_timestamp(void)
 {
     return [[NSCalendarDate calendarDate] descriptionWithCalendarFormat:@"%H:%M"];
 }
+
+NSAttributedString *ui_image_attachment(NSImage *image)
+{
+    NSTextAttachment *a = [[[NSTextAttachment alloc] init] autorelease];
+
+#ifdef OPENSTEP
+    [a setAttachmentCell:[[[NSTextAttachmentCell alloc] initImageCell:image] autorelease]];
+#else
+    [a setImage:image];
+#endif
+    return [NSAttributedString attributedStringWithAttachment:a];
+}

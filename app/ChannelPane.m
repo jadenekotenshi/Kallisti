@@ -83,6 +83,12 @@ static NSColor *author_color(const char *name)
 - (NSString *)messageString { return [messageText string]; }
 - (void)focusInput { [[view window] makeFirstResponder:inputField]; }
 
+- (void)setImageSource:(id)source inline:(BOOL)showInline
+{
+    imageSource = source;
+    inlineImages = showInline;
+}
+
 /* ---------------------------------------------------------------- drawing */
 
 - (void)appendString:(NSString *)s color:(NSColor *)color font:(NSFont *)font
@@ -110,6 +116,19 @@ static NSColor *author_color(const char *name)
     [self appendString:S(m->text) color:[NSColor blackColor] font:normalFont];
     if (m->edited) [self appendString:@" (edited)" color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];
+    if (inlineImages && imageSource != nil) {
+        int i;
+
+        for (i = 0; i < m->natt; i++) {
+            NSImage *img;
+
+            if (!m->att[i].is_image) continue;
+            img = [imageSource inlineImageForURL:S(m->att[i].url) width:m->att[i].width height:m->att[i].height];
+            if (img == nil) continue;
+            [[messageText textStorage] appendAttributedString:ui_image_attachment(img)];
+            [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];
+        }
+    }
 }
 
 - (void)reload

@@ -15,6 +15,8 @@
     NSString     *channel;               /* id of the channel shown, or nil */
     char          lastDay[16];           /* the day of the last message drawn, for the date separators */
     NSFont       *boldFont, *normalFont;
+    id            imageSource;           /* supplies thumbnails for inline pictures; not retained */
+    BOOL          inlineImages;
 }
 - (id)initWithOwner:(id)anOwner model:(Model *)aModel frame:(NSRect)frame;
 - (NSView *)view;
@@ -24,10 +26,18 @@
 - (void)modelChanged:(const ModelChange *)change;
 - (void)appendNotice:(NSString *)text;        /* a grey line at the end of the log */
 - (void)focusInput;
+/* Pictures drawn inside the log (experimental): `source` answers -inlineImageForURL:width:height:. */
+- (void)setImageSource:(id)source inline:(BOOL)showInline;
 - (NSString *)messageString;                  /* the log's text, for the tests */
 - (void)typeText:(NSString *)text;            /* as if typed and Return pressed, for the tests */
 @end
 
 @interface NSObject (ChannelPaneOwner)
 - (void)channelPane:(ChannelPane *)pane didSubmitText:(NSString *)text forChannel:(NSString *)channelId;
+@end
+
+@interface NSObject (ChannelPaneImageSource)
+/* The thumbnail for an attachment address if it is on hand; otherwise nil, and the source starts fetching it and
+ * will have the pane draw itself again when it arrives. */
+- (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h;
 @end

@@ -64,6 +64,13 @@ static BOOL hasPicMessage(AppController *app)
     return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
 }
 
+static BOOL hasAttachmentChar(AppController *app)
+{
+    unichar obj = 0xFFFC;
+
+    return [[[app mainController] messageString] rangeOfString:[NSString stringWithCharacters:&obj length:1]].location != NSNotFound;
+}
+
 static BOOL hasImageWindow(AppController *app)
 {
     return [[app imageWindows] count] == 1;
@@ -226,6 +233,20 @@ int main(int argc, char **argv)
                 CHECK([[app imageWindows] count] == 0);
             }
         }
+    }
+
+    /* the experimental inline pictures: switched on, the thumbnail is fetched and the log shows an attachment */
+    {
+        unichar obj = 0xFFFC;
+        NSString *marker = [NSString stringWithCharacters:&obj length:1];
+
+        CHECK([[main messageString] rangeOfString:marker].location == NSNotFound);
+        [app setInlineImages:YES];
+        CHECK([app inlineImagesEnabled]);
+        CHECK(waitFor(hasAttachmentChar, app, 20.0));
+        CHECK(countOf([main messageString], marker) == 1);
+        [app setInlineImages:NO];
+        CHECK([[main messageString] rangeOfString:marker].location == NSNotFound);
     }
 
     /* a DM from a stranger lands in Direct Messages, first in the list, as a mention */

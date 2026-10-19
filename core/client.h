@@ -48,6 +48,7 @@ typedef struct {
 /* A fetched picture, ready for AppKit: an uncompressed TIFF. */
 typedef struct {
     char url[512];               /* the address asked for (as given to kc_fetch_image) */
+    unsigned long tag;           /* whatever the caller passed in, to tell its requests apart */
     int ok;
     char error[160];             /* when !ok */
     unsigned char *tiff;         /* malloc'd; the receiver frees it */
@@ -90,7 +91,7 @@ typedef struct {
     KMs gconnect_at, gphase_at;
 
     /* picture downloads (one at a time, each on a connection of its own) */
-    struct { char url[512]; unsigned long w, h; } fq[KC_IMAGE_QUEUE];
+    struct { char url[512]; unsigned long w, h, max_w, max_h, tag; } fq[KC_IMAGE_QUEUE];
     int nfq;
     KImage imgs[KC_IMAGE_QUEUE];
     int nimgs;
@@ -100,7 +101,7 @@ typedef struct {
     int fphase;                  /* 0 idle, 1 connecting, 2 waiting for the reply */
     char furl[512];              /* the address being fetched now (after redirects) */
     char forig[512];             /* ... and the one that was asked for */
-    unsigned long fw, fh;
+    unsigned long fmax_w, fmax_h, ftag;
     int fredirects;
     KMs fstarted;
 
@@ -129,6 +130,9 @@ int kc_send_message(KClient *kc, const char *channel_id, const char *text);
  * media proxy is asked for a PNG of at most KC_IMAGE_MAX_W x KC_IMAGE_MAX_H, which is decoded, flattened onto
  * white and handed back by kc_next_image(). Returns 0, or -1 if the queue is full or the address is no good. */
 int kc_fetch_image(KClient *kc, const char *url, unsigned long w, unsigned long h);
+/* The same with a size limit of your own (e.g. a thumbnail) and a tag that comes back in the KImage. */
+int kc_fetch_image_boxed(KClient *kc, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
+                         unsigned long max_h, unsigned long tag);
 /* One finished download (success or failure). The caller owns out->tiff. */
 int kc_next_image(KClient *kc, KImage *out);
 
