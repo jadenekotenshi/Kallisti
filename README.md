@@ -44,7 +44,10 @@ before any OPENSTEP code:
    characters. It remembers `X-RateLimit-*` per route and waits instead of earning a 429; a 429 is waited out
    (up to four times, and not at all past a minute, which is reported); GETs are retried on 5xx and transport
    failures, POSTs never (the message may have been delivered). Bot tokens go out as `Bot <token>`, user tokens bare.
-   Still to come: the guild/channel/message model fed by the gateway and REST results.
+5. ~~**Model** (`core/model.c`)~~ -- done: servers, text/announcement channels and categories (display-ordered as
+   Discord shows them), and the last 200 messages per channel, fed by gateway dispatches and REST results, with
+   a change queue for the UI, unread/mention counters, mentions/emoji/attachments rendered to plain text, and
+   merging that survives a fresh READY. Threads, voice, DMs and permission filtering are out of v0.1.
 
 Then the app: connection sheet (token), a server/channel list, one window per text channel with the message
 log and an input field, in the style of RatChat.
