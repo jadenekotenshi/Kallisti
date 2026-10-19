@@ -117,6 +117,15 @@ int model_next_change(Model *m, ModelChange *out)
 
 /* ---------------------------------------------------------------- lifecycle */
 
+static void message_clear(Message *m)
+{
+    free(m->text);
+    free(m->att);
+    m->text = NULL;
+    m->att = NULL;
+    m->natt = 0;
+}
+
 void model_init(Model *m)
 {
     memset(m, 0, sizeof(*m));
@@ -127,7 +136,7 @@ static void channel_free(Channel *c)
     int i;
 
     for (i = 0; i < c->nmsgs; i++) {
-        free(c->msgs[i].text);
+        message_clear(&c->msgs[i]);
     }
     free(c->msgs);
     memset(c, 0, sizeof(*c));
@@ -468,6 +477,16 @@ static const char *user_display(const JNode *user)
     return n != NULL && n[0] != '\0' ? n : "unknown";
 }
 
+static int is_image_attachment(const JNode *a)
+{
+    const char *ct = json_get_str(a, "content_type", NULL);
+
+    if (ct != NULL) {
+        return strncmp(ct, "image/", 6) == 0;
+    }
+    return int_of(a, "width", 0) > 0 && int_of(a, "height", 0) > 0;
+}
+
 /* The text to show for a message object, in a malloc'd string (NULL if out of memory). */
 static char *render_text(Model *m, const JNode *msg)
 {
@@ -517,9 +536,23 @@ static char *render_text(Model *m, const JNode *msg)
             if (out.len > 0) {
                 str_adds(&out, "\n");
             }
-            str_adds(&out, "[attachment: ");
-            str_adds(&out, json_get_str(a, "filename", "file"));
-            str_adds(&out, "]");
+            if (is_image_attachment(a)) {
+                int aw = int_of(a, "width", 0), ah = int_of(a, "height", 0);
+
+                str_adds(&out, "[image: ");
+                str_adds(&out, json_get_str(a, "filename", "file"));
+                if (aw > 0 && ah > 0) {
+                    char dims[40];
+
+                    sprintf(dims, " %dx%d", aw, ah);
+                    str_adds(&out, dims);
+                }
+                str_adds(&out, "]");
+            } else {
+                str_adds(&out, "[attachment: ");
+                str_adds(&out, json_get_str(a, "filename", "file"));
+                str_adds(&out, "]");
+            }
         }
     }
     if (out.len == 0) {
@@ -680,6 +713,45 @@ static Channel *dm_from_message(Model *m, const char *cid, const JNode *author)
     return model_find_channel(m, cid);
 }
 
+/* Keeps the first few attachments' addresses, names and sizes, so an image can be fetched later. */
+static void parse_attachments(Message *msg, const JNode *json)
+{
+    const JNode *list = json_get(json, "attachments"), *a;
+    int n = 0;
+
+    msg->att = NULL;
+    msg->natt = 0;
+    if (list == NULL || list->type != J_ARR || list->count == 0) {
+        return;
+    }
+    msg->att = (Attachment *)calloc(MODEL_MAX_ATTACHMENTS, sizeof(Attachment));
+    if (msg->att == NULL) {
+        return;
+    }
+    for (a = list->first; a != NULL && n < MODEL_MAX_ATTACHMENTS; a = a->next) {
+        const char *url = json_get_str(a, "proxy_url", NULL);
+        Attachment *t = &msg->att[n];
+
+        if (url == NULL || url[0] == '\0') {
+            url = json_get_str(a, "url", "");
+        }
+        if (strlen(url) >= sizeof(t->url)) {
+            continue;                                      /* a longer address than we keep: unusable */
+        }
+        strcpy(t->url, url);
+        copy_utf8(t->name, sizeof(t->name), json_get_str(a, "filename", "file"));
+        t->width = int_of(a, "width", 0);
+        t->height = int_of(a, "height", 0);
+        t->is_image = is_image_attachment(a);
+        n++;
+    }
+    msg->natt = n;
+    if (n == 0) {
+        free(msg->att);
+        msg->att = NULL;
+    }
+}
+
 void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
 {
     const char *id = id_of(msg, "id"), *cid = id_of(msg, "channel_id"), *aid;
@@ -723,19 +795,20 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     tmp.bot = json_bool(json_get(author, "bot"), &bt) ? bt : 0;
     tmp.type = int_of(msg, "type", 0);
     tmp.text = text;
+    parse_attachments(&tmp, msg);
 
     ex = model_find_message(c, id);
     if (ex != NULL) {                    /* already known (our own POST, then the gateway's copy): refresh quietly */
-        free(ex->text);
+        message_clear(ex);
         *ex = tmp;
         return;
     }
     if (c->nmsgs >= MODEL_MAX_MESSAGES) {
         if (model_id_cmp(id, c->msgs[0].id) < 0) {
-            free(text);                  /* older than everything kept */
+            message_clear(&tmp);         /* older than everything kept */
             return;
         }
-        free(c->msgs[0].text);
+        message_clear(&c->msgs[0]);
         memmove(&c->msgs[0], &c->msgs[1], (size_t)(c->nmsgs - 1) * sizeof(Message));
         c->nmsgs--;
     }
@@ -744,7 +817,7 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
         Message *nm = (Message *)realloc(c->msgs, (size_t)ncap * sizeof(Message));
 
         if (nm == NULL) {
-            free(text);
+            message_clear(&tmp);
             return;
         }
         c->msgs = nm;
@@ -812,7 +885,7 @@ static void message_delete(Model *m, const char *channel_id, const char *message
     }
     for (i = 0; i < c->nmsgs; i++) {
         if (strcmp(c->msgs[i].id, message_id) == 0) {
-            free(c->msgs[i].text);
+            message_clear(&c->msgs[i]);
             memmove(&c->msgs[i], &c->msgs[i + 1], (size_t)(c->nmsgs - i - 1) * sizeof(Message));
             c->nmsgs--;
             push_change(m, MC_MESSAGE_REMOVED, c->guild_id, c->id, message_id);

@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include "rng.h"
 #include "roots.h"
+#include "ktime.h"
 #include "oscompat.h"
 
 static NSString *S(const char *s) { return ui_string_from_utf8(s); }
@@ -86,6 +87,8 @@ static KMs app_now_ms(void)
 - (void)openCurrentInWindow:(id)sender;
 - (void)showNewDM:(id)sender;
 - (void)closeChannelWindows;
+- (void)showImages:(id)sender;
+- (void)closeImageWindows;
 - (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target;
 @end
 
@@ -101,6 +104,8 @@ static KMs app_now_ms(void)
     trust_init(&trust);
     kprefs_defaults(&prefs);
     channelWindows = [[NSMutableArray alloc] init];
+    imageWindows = [[NSMutableArray alloc] init];
+    imageNames = [[NSMutableDictionary alloc] init];
     return self;
 }
 
@@ -113,6 +118,7 @@ static KMs app_now_ms(void)
     [mainController release];
     [channelWindows release];
     [dmController release];
+    [imageList release]; [imageWindows release]; [imageNames release];
     [kallistiDir release]; [prefsPath release]; [rngSeedPath release];
     [entropyPanel release];
     [restHost release]; [gatewayURL release];
@@ -159,6 +165,7 @@ static KMs app_now_ms(void)
     [self addItem:@"Disconnect" action:@selector(disconnect:) key:@"d" target:self toMenu:m];
     [self addItem:@"New Direct Message..." action:@selector(showNewDM:) key:@"t" target:self toMenu:m];
     [self addItem:@"Open Channel in New Window" action:@selector(openCurrentInWindow:) key:@"o" target:self toMenu:m];
+    [self addItem:@"Images in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
     [self addItem:@"Check Certificate Dates" action:@selector(toggleDates:) key:@"" target:self toMenu:m];
     datesItem = [m itemWithTitle:@"Check Certificate Dates"];
 
@@ -347,6 +354,7 @@ static KMs app_now_ms(void)
 - (void)drainEngine
 {
     KEvent ev;
+    KImage img;
     ModelChange ch;
     BOOL fatal = NO;
     NSString *fatalText = nil;
@@ -363,6 +371,29 @@ static KMs app_now_ms(void)
         } else if (ev.type == KE_CHANNEL) {
             [mainController selectChannelWithId:S(ev.text)];        /* a conversation the user asked for */
         }
+    }
+    while (kc && kc_next_image(kc, &img)) {
+        NSString *url = S(img.url);
+        NSString *name = [imageNames objectForKey:url];
+        ImageWindow *w = nil;
+
+        if (img.ok) {
+            NSData *data = [NSData dataWithBytes:img.tiff length:img.tiff_len];
+
+            w = [[[ImageWindow alloc] initWithOwner:self title:(name ? name : @"Picture") tiffData:data] autorelease];
+            if (w) {
+                [imageWindows addObject:w];
+                [w show];
+                [mainController setStatus:@"Picture loaded"];
+            } else {
+                [mainController appendNotice:@"The picture arrived but AppKit could not read it."];
+            }
+        } else {
+            [mainController setStatus:S(img.error)];
+            [mainController appendNotice:S(img.error)];
+        }
+        free(img.tiff);
+        [imageNames removeObjectForKey:url];
     }
     while (kc && kc_next_change(kc, &ch)) {
         [mainController modelChanged:&ch];
@@ -388,6 +419,8 @@ static KMs app_now_ms(void)
 {
     [timer invalidate]; [timer release]; timer = nil;
     [self closeChannelWindows];
+    [self closeImageWindows];
+    [imageList closePanel];
     if (kc) {
         kc_stop(kc);
         kc_free(kc);
@@ -475,6 +508,82 @@ static KMs app_now_ms(void)
 
     if (cid) [self openWindowForChannel:cid];
     else NSBeep();
+}
+
+/* ---------------------------------------------------------------- pictures */
+
+- (void)closeImageWindows
+{
+    int i;
+
+    for (i = 0; i < (int)[imageWindows count]; i++) [[imageWindows objectAtIndex:i] closeWindow];
+    [imageWindows removeAllObjects];
+    [imageNames removeAllObjects];
+}
+
+- (NSArray *)imageWindows { return imageWindows; }
+
+- (NSArray *)imageItemsForCurrentChannel
+{
+    NSMutableArray *list = [NSMutableArray array];
+    NSString *cid = [mainController currentChannel];
+    Channel *c = (kc && cid) ? model_find_channel(kc_model(kc), [cid cString]) : NULL;
+    int i, j;
+
+    for (i = 0; c && i < c->nmsgs; i++) {
+        Message *m = &c->msgs[i];
+        char hm[8], day[16];
+
+        ktime_local(m->time, hm, day);
+        for (j = 0; j < m->natt; j++) {
+            Attachment *a = &m->att[j];
+            NSString *label;
+
+            if (!a->is_image) continue;
+            label = [NSString stringWithFormat:@"[%s] %@: %@%@", hm, S(m->author), S(a->name),
+                     (a->width > 0 && a->height > 0) ? [NSString stringWithFormat:@"  (%dx%d)", a->width, a->height] : @""];
+            [list addObject:[[[ImageItem alloc] initWithLabel:label url:S(a->url) name:S(a->name)
+                                                        width:(unsigned long)a->width height:(unsigned long)a->height] autorelease]];
+        }
+    }
+    return list;
+}
+
+- (void)showImages:(id)sender
+{
+    NSArray *items = [self imageItemsForCurrentChannel];
+
+    if (![mainController currentChannel]) {
+        NSRunAlertPanel(@"No channel", @"Choose a channel first.", @"OK", nil, nil);
+        return;
+    }
+    if ([items count] == 0) {
+        NSRunAlertPanel(@"No pictures", @"None of the messages shown in this channel has a picture attached.", @"OK", nil, nil);
+        return;
+    }
+    if (!imageList) imageList = [[ImageListController alloc] initWithOwner:self];
+    [imageList showItems:items title:@"Images in This Channel"];
+}
+
+- (void)openImageItem:(ImageItem *)item
+{
+    if (!kc || kc_fetch_image(kc, [item->url cString], item->width, item->height) != 0) {
+        [mainController appendNotice:@"Too many pictures are loading; try again in a moment."];
+        return;
+    }
+    [imageNames setObject:item->name forKey:item->url];
+    [mainController setStatus:[NSString stringWithFormat:@"Loading %@...", item->name]];
+}
+
+- (void)imageList:(ImageListController *)c didChooseItem:(ImageItem *)item
+{
+    [self openImageItem:item];
+}
+
+- (void)imageWindowClosed:(ImageWindow *)iw
+{
+    [[iw retain] autorelease];
+    [imageWindows removeObject:iw];
 }
 
 - (void)channelWindowClosed:(ChannelWindow *)cw

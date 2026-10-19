@@ -19,6 +19,7 @@
 #include "netconn.h"
 #include "http.h"
 #include "ws.h"
+#include "img.h"
 
 enum { KC_IDLE = 0, KC_VERIFYING, KC_CONNECTING, KC_ONLINE, KC_FATAL, KC_STOPPED };
 enum { KE_STATE = 1, KE_ERROR, KE_CHANNEL };
@@ -38,6 +39,21 @@ typedef struct {
     int kind;
     char channel_id[24];
 } KcPending;
+
+#define KC_IMAGE_MAX_W 800UL        /* pictures are fetched at most this large (Discord resizes them for us) */
+#define KC_IMAGE_MAX_H 600UL
+#define KC_IMAGE_QUEUE 4
+#define KC_IMAGE_BODY_MAX (12L * 1024L * 1024L)
+
+/* A fetched picture, ready for AppKit: an uncompressed TIFF. */
+typedef struct {
+    char url[512];               /* the address asked for (as given to kc_fetch_image) */
+    int ok;
+    char error[160];             /* when !ok */
+    unsigned char *tiff;         /* malloc'd; the receiver frees it */
+    size_t tiff_len;
+    unsigned long width, height;
+} KImage;
 
 typedef struct {
     /* configuration: set between kc_init() and kc_start() */
@@ -73,6 +89,21 @@ typedef struct {
     char gurl[320];
     KMs gconnect_at, gphase_at;
 
+    /* picture downloads (one at a time, each on a connection of its own) */
+    struct { char url[512]; unsigned long w, h; } fq[KC_IMAGE_QUEUE];
+    int nfq;
+    KImage imgs[KC_IMAGE_QUEUE];
+    int nimgs;
+    NetConn fconn;
+    HttpReq freq;
+    HttpResp fresp;
+    int fphase;                  /* 0 idle, 1 connecting, 2 waiting for the reply */
+    char furl[512];              /* the address being fetched now (after redirects) */
+    char forig[512];             /* ... and the one that was asked for */
+    unsigned long fw, fh;
+    int fredirects;
+    KMs fstarted;
+
     KEvent evs[16];
     int nevs;
 } KClient;
@@ -94,6 +125,13 @@ void kc_open_channel(KClient *kc, const char *channel_id);
 /* Queues a message; returns 0, or a REST_E_* code (empty, too long, queue full). Failures that happen later
  * come back as KE_ERROR events. */
 int kc_send_message(KClient *kc, const char *channel_id, const char *text);
+/* Queues a picture download: `url` as found in a message's attachment, `w` x `h` its size (0 if unknown). Discord's
+ * media proxy is asked for a PNG of at most KC_IMAGE_MAX_W x KC_IMAGE_MAX_H, which is decoded, flattened onto
+ * white and handed back by kc_next_image(). Returns 0, or -1 if the queue is full or the address is no good. */
+int kc_fetch_image(KClient *kc, const char *url, unsigned long w, unsigned long h);
+/* One finished download (success or failure). The caller owns out->tiff. */
+int kc_next_image(KClient *kc, KImage *out);
+
 /* Opens a direct message with a user (by id). Returns 0 or a REST_E_* code; the answer is a KE_CHANNEL event,
  * or a KE_ERROR (for a bot: the user must share a server with it). */
 int kc_open_dm(KClient *kc, const char *user_id);

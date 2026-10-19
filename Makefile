@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots kprefs ktime
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots kprefs ktime png
 
 all: test
 
@@ -124,7 +124,7 @@ check-objc:
 
 # The real AppController/MainController stack, with the modern Cocoa on this Mac, against the fake Discord.
 UI_SRC = app/AppController.m app/LoginController.m app/MainController.m app/ChannelPane.m app/ChannelWindow.m \
-         app/DMController.m app/SecretField.m app/UIHelpers.m
+         app/DMController.m app/ImageWindow.m app/ImageListController.m app/SecretField.m app/UIHelpers.m
 ui-smoke: build/venv/bin/python
 	mkdir -p build/ui
 	for f in tests/ui_smoke.m $(UI_SRC); do \

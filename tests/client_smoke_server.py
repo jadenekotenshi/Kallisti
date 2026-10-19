@@ -11,7 +11,7 @@ REST (the process_request hook answers anything that is not a WebSocket upgrade)
          gateway RECONNECT (op 7) to every connected client, which must resume and receive a missed message
 Gateway (any WebSocket upgrade): HELLO, IDENTIFY or RESUME, READY + GUILD_CREATE + a message, heartbeat ACKs.
 """
-import asyncio, json, ssl, sys
+import asyncio, json, os, ssl, sys
 from http import HTTPStatus
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
@@ -21,7 +21,9 @@ CERT = sys.argv[2] if len(sys.argv) > 2 else None
 KEY = sys.argv[3] if len(sys.argv) > 3 else None
 TOKEN = 'goodtoken'
 SCHEME = 'wss' if CERT else 'ws'
+SCHEME_HTTP = 'https' if CERT else 'http'
 clients = set()
+PNG = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img', 'big_rgb_interlaced.png'), 'rb').read()
 state = {'seq': 100, 'next_id': 500, 'limited': False, 'missed': False}
 
 
@@ -86,6 +88,28 @@ async def rest_conn(reader, writer):
             method, target, headers, body = req
             state['requests'] = state.get('requests', 0) + 1
             path = target.split('?')[0]
+            query = target.split('?', 1)[1] if '?' in target else ''
+            if path.startswith('/img/'):                  # the media proxy: no authorization, and it wants format=png
+                if 'authorization' in headers:
+                    await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'a token went to the CDN'})
+                elif path == '/img/redirect':
+                    writer.write(b'HTTP/1.1 302 Found\r\nLocation: /img/cat.png?ex=2&format=png\r\nContent-Length: 0\r\n\r\n')
+                    await writer.drain()
+                elif path == '/img/missing':
+                    await reply(writer, HTTPStatus.NOT_FOUND, {'message': 'no such file'})
+                elif path == '/img/notpng':
+                    writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: image/webp\r\nContent-Length: 11\r\n\r\nnot a png!!')
+                    await writer.drain()
+                elif path == '/img/sized' and 'format=png&width=800&height=400' not in query:
+                    await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'wrong size parameters: ' + query})
+                elif 'format=png' not in query:
+                    await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'no format=png: ' + query})
+                else:
+                    writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
+                    await writer.drain()
+                if headers.get('connection', '').lower() == 'close':
+                    break
+                continue
             if headers.get('authorization', '') != 'Bot ' + TOKEN:
                 await reply(writer, HTTPStatus.UNAUTHORIZED, {'message': '401: Unauthorized', 'code': 0})
             elif method == 'GET' and path == '/api/v10/users/@me':
@@ -124,6 +148,14 @@ async def rest_conn(reader, writer):
                     m = msg(state['next_id'], content, author='42', name='Kallisti-bot')
                     if content == 'kick':
                         state['missed'] = True
+                    if content == 'pic':
+                        state['next_id'] += 1
+                        pm = msg(state['next_id'], 'a picture', author='7', name='someone')
+                        pm['attachments'] = [{'id': '1', 'filename': 'cat.png', 'size': 1,
+                                              'url': 'https://cdn.invalid/cat.png',
+                                              'proxy_url': '%s://localhost:%d/img/cat.png?ex=1&hm=abc' % (SCHEME_HTTP, PORT),
+                                              'width': 300, 'height': 200, 'content_type': 'image/png'}]
+                        await broadcast('MESSAGE_CREATE', pm)
                     if content == 'dmme':
                         state['next_id'] += 1
                         await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'psst, a DM', author='8', name='eight', channel='901', guild=None))

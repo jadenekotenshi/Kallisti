@@ -3,6 +3,8 @@
 #import "MainController.h"
 #import "ChannelWindow.h"
 #import "DMController.h"
+#import "ImageWindow.h"
+#import "ImageListController.h"
 #include "client.h"
 #include "kprefs.h"
 
@@ -25,6 +27,9 @@
     NSMenuItem        *datesItem;
     NSMutableArray    *channelWindows;     /* every open ChannelWindow */
     DMController      *dmController;
+    ImageListController *imageList;
+    NSMutableArray    *imageWindows;       /* every open ImageWindow */
+    NSMutableDictionary *imageNames;       /* url -> file name, for the pictures being fetched */
     NSString          *restHost, *gatewayURL;   /* tests aim the client at a fake server; nil: Discord */
     int                restPort, restTLS;
 }
@@ -36,6 +41,11 @@
 - (MainController *)mainController;
 - (void)openWindowForChannel:(NSString *)channelId;     /* what a double-click in the list does */
 - (ChannelWindow *)windowForChannel:(NSString *)channelId;
+/* The pictures attached to the messages of the channel shown in the main window (ImageItem objects), and what
+ * choosing one does: ask the engine to fetch it, then show it in an ImageWindow. */
+- (NSArray *)imageItemsForCurrentChannel;
+- (void)openImageItem:(ImageItem *)item;
+- (NSArray *)imageWindows;
 - (KClient *)client;
 /* EntropyMeter's callback once the random pool is credited enough to use. */
 - (void)entropyReady;

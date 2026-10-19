@@ -37,11 +37,16 @@ typedef struct {
     int nerrors;
     char channels[4][24];
     int nchannels;
+    int nimages, image_ok[8];
+    char image_err[8][160];
+    unsigned long image_w[8], image_h[8];
+    char image_url[8][512];
 } Seen;
 
 static void drain_events(KClient *kc, Seen *s)
 {
     KEvent ev;
+    KImage im;
 
     while (kc_next_event(kc, &ev)) {
         if (ev.type == KE_STATE && s->nstates < 32) {
@@ -53,6 +58,17 @@ static void drain_events(KClient *kc, Seen *s)
         } else if (ev.type == KE_CHANNEL && s->nchannels < 4) {
             strcpy(s->channels[s->nchannels++], ev.text);
         }
+    }
+    while (kc_next_image(kc, &im)) {
+        if (s->nimages < 8) {
+            s->image_ok[s->nimages] = im.ok;
+            strcpy(s->image_err[s->nimages], im.error);
+            s->image_w[s->nimages] = im.width;
+            s->image_h[s->nimages] = im.height;
+            strcpy(s->image_url[s->nimages], im.url);
+            s->nimages++;
+        }
+        free(im.tiff);
     }
 }
 
@@ -136,6 +152,8 @@ static int c_has_dmhi(KClient *kc, Seen *s)
     return c != NULL && c->nmsgs == 1;
 }
 static int c_channel_event(KClient *kc, Seen *s) { return s->nchannels >= 1; }
+static int c_images4(KClient *kc, Seen *s) { return s->nimages >= 4; }
+static int c_images1(KClient *kc, Seen *s) { return s->nimages >= 1; }
 static int c_stopped(KClient *kc, Seen *s) { return kc->state == KC_STOPPED; }
 
 static int count_text(KClient *kc, const char *text)
@@ -244,6 +262,41 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
     CHECK(kc_open_dm(&kc, "666") == 0);
     CHECK(run_until(&kc, &seen, c_error1, 10000));
     CHECK(strstr(seen.errors[0], "Could not start the conversation") != NULL && strstr(seen.errors[0], "Cannot send messages") != NULL);
+
+    /* pictures: fetched from the "media proxy" (no token sent), redirects followed, failures explained */
+    {
+        char base[160], u[240];
+
+        sprintf(base, "%s://localhost:%d/img", tls ? "https" : "http", port);
+        seen.nimages = 0;
+        sprintf(u, "%s/cat.png?ex=1&hm=2", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_w[0] == 300 && seen.image_h[0] == 200 && strcmp(seen.image_url[0], u) == 0);
+
+        seen.nimages = 0;
+        sprintf(u, "%s/redirect", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_w[0] == 300);
+
+        /* four at once come back in order, a mix of good and bad */
+        seen.nimages = 0;
+        sprintf(u, "%s/missing", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+        sprintf(u, "%s/notpng", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+        sprintf(u, "%s/sized", base);
+        CHECK(kc_fetch_image(&kc, u, 2000, 1000) == 0);          /* asked for 800x400 */
+        sprintf(u, "%s/cat.png", base);
+        CHECK(kc_fetch_image(&kc, u, 640, 480) == 0);            /* fits: no size parameters */
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == -1);               /* the queue holds four */
+        CHECK(run_until(&kc, &seen, c_images4, 30000));
+        CHECK(!seen.image_ok[0] && strstr(seen.image_err[0], "404") != NULL);
+        CHECK(!seen.image_ok[1] && strstr(seen.image_err[1], "PNG") != NULL);
+        CHECK(seen.image_ok[2] && seen.image_ok[3] && seen.image_w[3] == 300);
+        CHECK(kc_fetch_image(&kc, "ftp://nope/x.png", 0, 0) == -1 && kc_fetch_image(&kc, "garbage", 0, 0) == -1);
+    }
 
     /* the server tells us to reconnect: we resume and get what we missed */
     seen.nstates = 0;

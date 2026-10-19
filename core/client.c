@@ -78,6 +78,7 @@ void kc_init(KClient *kc, const char *token, int is_bot)
     kc->check_dates = 1;
     net_init(&kc->rconn);
     net_init(&kc->gconn);
+    net_init(&kc->fconn);
     rest_init(&kc->rest, kc->token, is_bot);
     gw_init(&kc->gw, kc->token,
             is_bot ? (GW_INTENT_GUILDS | GW_INTENT_GUILD_MESSAGES | GW_INTENT_DIRECT_MESSAGES |
@@ -108,8 +109,25 @@ static void drop_gateway(KClient *kc)
     net_close(&kc->gconn);
 }
 
+static void drop_fetch(KClient *kc)
+{
+    if (kc->fphase != 0) {
+        http_req_free(&kc->freq);
+        http_resp_free(&kc->fresp);
+        kc->fphase = 0;
+    }
+    net_close(&kc->fconn);
+}
+
 void kc_free(KClient *kc)
 {
+    int i;
+
+    drop_fetch(kc);
+    for (i = 0; i < kc->nimgs; i++) {
+        free(kc->imgs[i].tiff);
+    }
+    kc->nimgs = 0;
     drop_rest(kc);
     drop_gateway(kc);
     gw_free(&kc->gw);
@@ -151,6 +169,7 @@ void kc_stop(KClient *kc)
     gw_stop(&kc->gw, 0);
     drop_gateway(kc);
     drop_rest(kc);
+    drop_fetch(kc);
     kc->state = KC_STOPPED;
     emit(kc, KE_STATE, KC_STOPPED, "Disconnected");
 }
@@ -591,12 +610,249 @@ static void gateway_pump(KClient *kc, KMs now)
     gw_events(kc);
 }
 
+/* ---------------------------------------------------------------- picture downloads */
+
+/* The address to request: the attachment's own, plus the media proxy's format and size parameters. */
+static void fetch_url(char *out, size_t cap, const char *url, unsigned long w, unsigned long h)
+{
+    char extra[96];
+    unsigned long nw = w, nh = h;
+
+    if (w > 0 && h > 0 && (w > KC_IMAGE_MAX_W || h > KC_IMAGE_MAX_H)) {
+        /* shrink to fit, keeping the proportions (the proxy treats width and height as a box) */
+        if (w * KC_IMAGE_MAX_H > h * KC_IMAGE_MAX_W) {
+            nw = KC_IMAGE_MAX_W;
+            nh = (h * KC_IMAGE_MAX_W + w / 2) / w;
+        } else {
+            nh = KC_IMAGE_MAX_H;
+            nw = (w * KC_IMAGE_MAX_H + h / 2) / h;
+        }
+        if (nw < 1) nw = 1;
+        if (nh < 1) nh = 1;
+        sprintf(extra, "format=png&width=%lu&height=%lu", nw, nh);
+    } else {
+        strcpy(extra, "format=png");
+    }
+    if (strlen(url) + strlen(extra) + 2 >= cap) {
+        out[0] = '\0';
+        return;
+    }
+    sprintf(out, "%s%c%s", url, strchr(url, '?') != NULL ? '&' : '?', extra);
+}
+
+int kc_fetch_image(KClient *kc, const char *url, unsigned long w, unsigned long h)
+{
+    HttpUrl u;
+
+    if (kc->nfq >= KC_IMAGE_QUEUE || strlen(url) >= sizeof(kc->fq[0].url) - 100 || http_parse_url(url, &u) != 0 ||
+        (u.tls && kc->trust == NULL)) {
+        return -1;
+    }
+    copy_str(kc->fq[kc->nfq].url, sizeof(kc->fq[0].url), url);
+    kc->fq[kc->nfq].w = w;
+    kc->fq[kc->nfq].h = h;
+    kc->nfq++;
+    return 0;
+}
+
+int kc_next_image(KClient *kc, KImage *out)
+{
+    int i;
+
+    if (kc->nimgs == 0) {
+        return 0;
+    }
+    *out = kc->imgs[0];
+    for (i = 1; i < kc->nimgs; i++) {
+        kc->imgs[i - 1] = kc->imgs[i];
+    }
+    kc->nimgs--;
+    return 1;
+}
+
+static void fetch_result(KClient *kc, int ok, const char *error, unsigned char *tiff, size_t tiff_len,
+                         unsigned long w, unsigned long h)
+{
+    KImage *r = &kc->imgs[kc->nimgs];
+
+    memset(r, 0, sizeof(*r));
+    copy_str(r->url, sizeof(r->url), kc->forig);
+    r->ok = ok;
+    copy_str(r->error, sizeof(r->error), error);
+    r->tiff = tiff;
+    r->tiff_len = tiff_len;
+    r->width = w;
+    r->height = h;
+    kc->nimgs++;
+    http_req_free(&kc->freq);
+    if (kc->fphase == 2) {
+        http_resp_free(&kc->fresp);
+    }
+    kc->fphase = 0;
+    net_close(&kc->fconn);
+}
+
+static void fetch_failed(KClient *kc, const char *why)
+{
+    char msg[200];
+
+    sprintf(msg, "Could not load the picture: %.150s", why);
+    fetch_result(kc, 0, msg, NULL, 0, 0, 0);
+}
+
+/* Opens kc->furl; returns 0, or fails the fetch and returns -1. */
+static int fetch_open(KClient *kc, KMs now)
+{
+    HttpUrl u;
+    der_time utc;
+
+    if (http_parse_url(kc->furl, &u) != 0) {
+        kc->fphase = 0;
+        fetch_failed(kc, "bad address");
+        return -1;
+    }
+    net_utc_now(&utc);
+    if (net_open(&kc->fconn, u.host, u.port, u.tls, kc->trust, kc->check_dates ? &utc : NULL, now) != 0) {
+        char m[240];
+
+        sprintf(m, "%.200s", kc->fconn.err);
+        kc->fphase = 0;
+        fetch_failed(kc, m);
+        return -1;
+    }
+    kc->fphase = 1;
+    return 0;
+}
+
+static void fetch_pump(KClient *kc, KMs now)
+{
+    const unsigned char *p;
+    size_t n, used;
+    int rc, i;
+    HttpUrl u;
+
+    if (kc->fphase == 0 && kc->nfq > 0 && kc->nimgs < KC_IMAGE_QUEUE) {
+        copy_str(kc->forig, sizeof(kc->forig), kc->fq[0].url);
+        fetch_url(kc->furl, sizeof(kc->furl), kc->fq[0].url, kc->fq[0].w, kc->fq[0].h);
+        for (i = 1; i < kc->nfq; i++) {
+            kc->fq[i - 1] = kc->fq[i];
+        }
+        kc->nfq--;
+        kc->fredirects = 0;
+        kc->fstarted = now;
+        if (kc->furl[0] == '\0') {
+            fetch_failed(kc, "address too long");
+        } else {
+            fetch_open(kc, now);
+        }
+    }
+    if (kc->fphase == 0) {
+        return;
+    }
+    if (KMS_SINCE(now, kc->fstarted) > 60000L) {
+        fetch_failed(kc, "timed out");
+        return;
+    }
+    net_pump(&kc->fconn, now);
+    if (kc->fphase == 1) {
+        if (kc->fconn.state == NET_OPEN) {
+            if (http_parse_url(kc->furl, &u) != 0) {
+                fetch_failed(kc, "bad address");
+                return;
+            }
+            http_req_init(&kc->freq);
+            if (http_req_begin(&kc->freq, "GET", u.path, u.host, u.port, u.tls) != 0 ||
+                http_req_header(&kc->freq, "User-Agent", kc->rest.user_agent) != 0 ||
+                http_req_header(&kc->freq, "Accept", "image/png") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
+                net_write(&kc->fconn, kc->freq.buf, kc->freq.len) != 0) {
+                fetch_failed(kc, "could not send the request");
+                return;
+            }
+            http_resp_init(&kc->fresp, (size_t)KC_IMAGE_BODY_MAX, 0);
+            kc->fphase = 2;
+        } else if (kc->fconn.state == NET_FAILED || kc->fconn.state == NET_CLOSED) {
+            char m[240];
+
+            sprintf(m, "%.200s", kc->fconn.state == NET_FAILED ? kc->fconn.err : "connection closed");
+            fetch_failed(kc, m);
+        }
+        return;
+    }
+    /* phase 2: reading the reply */
+    p = net_peek(&kc->fconn, &n);
+    rc = HTTP_NEED_MORE;
+    if (n > 0) {
+        rc = http_resp_feed(&kc->fresp, p, n, &used);
+        net_consume(&kc->fconn, used);
+    }
+    if (rc == HTTP_NEED_MORE && (kc->fconn.state == NET_CLOSED || kc->fconn.state == NET_FAILED)) {
+        net_peek(&kc->fconn, &n);
+        if (n == 0) {
+            rc = http_resp_eof(&kc->fresp);
+            if (rc == HTTP_NEED_MORE) {
+                rc = HTTP_FAILED;
+            }
+        }
+    }
+    if (rc == HTTP_FAILED) {
+        char m[240];
+
+        sprintf(m, "%.200s", kc->fresp.err[0] != '\0' ? kc->fresp.err : "the connection was lost");
+        fetch_failed(kc, m);
+    } else if (rc == HTTP_DONE) {
+        int status = kc->fresp.status;
+
+        if ((status == 301 || status == 302 || status == 303 || status == 307 || status == 308) &&
+            http_resp_header(&kc->fresp, "Location") != NULL) {
+            char loc[512];
+            const char *l = http_resp_header(&kc->fresp, "Location");
+
+            if (kc->fredirects >= 3 || strlen(l) >= sizeof(loc)) {
+                fetch_failed(kc, "too many redirects");
+                return;
+            }
+            copy_str(loc, sizeof(loc), l);
+            if (http_parse_url(kc->furl, &u) != 0) {
+                fetch_failed(kc, "bad address");
+                return;
+            }
+            if (loc[0] == '/') {                          /* a path on the same host */
+                sprintf(kc->furl, "%s://%.200s:%d%.250s", u.tls ? "https" : "http", u.host, u.port, loc);
+            } else {
+                copy_str(kc->furl, sizeof(kc->furl), loc);
+            }
+            kc->fredirects++;
+            http_req_free(&kc->freq);
+            http_resp_free(&kc->fresp);
+            net_close(&kc->fconn);
+            fetch_open(kc, now);
+        } else if (status != 200) {
+            char m[80];
+
+            sprintf(m, "the server answered HTTP %d", status);
+            fetch_failed(kc, m);
+        } else {
+            unsigned char *tiff = NULL;
+            size_t tl = 0;
+            unsigned long w = 0, h = 0;
+            const char *err = "ok";
+
+            if (img_png_to_tiff(kc->fresp.body, kc->fresp.body_len, KC_IMAGE_MAX_W, KC_IMAGE_MAX_H, &tiff, &tl, &w, &h, &err) == 0) {
+                fetch_result(kc, 1, "", tiff, tl, w, h);
+            } else {
+                fetch_failed(kc, err);
+            }
+        }
+    }
+}
+
 /* ---------------------------------------------------------------- the tick */
 
 void kc_tick(KClient *kc, KMs now)
 {
     rest_pump(kc, now);
     gateway_pump(kc, now);
+    fetch_pump(kc, now);
 }
 
 /* ---------------------------------------------------------------- actions */

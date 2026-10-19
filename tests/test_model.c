@@ -412,6 +412,49 @@ static void test_reconnect(void)
     model_free(m);
 }
 
+static void test_attachments(void)
+{
+    Model *m = start();
+    Channel *c;
+    Message *msg;
+
+    {
+        char json[1200];
+
+        strcpy(json, "{\"id\":\"10\",\"channel_id\":\"201\",\"content\":\"look\",\"author\":{\"id\":\"1\",\"username\":\"a\"},");
+        strcat(json, "\"attachments\":[{\"filename\":\"cat.png\",\"url\":\"https://cdn.example/a/cat.png\",");
+        strcat(json, "\"proxy_url\":\"https://media.example/a/cat.png?ex=1&hm=2\",\"width\":800,\"height\":600,\"content_type\":\"image/png\"},");
+        strcat(json, "{\"filename\":\"notes.txt\",\"url\":\"https://cdn.example/a/notes.txt\",\"content_type\":\"text/plain\"},");
+        strcat(json, "{\"filename\":\"pic.jpg\",\"url\":\"https://cdn.example/a/pic.jpg\",\"width\":10,\"height\":20},");
+        strcat(json, "{\"filename\":\"bad\",\"url\":123},{\"filename\":\"five\",\"url\":\"u5\"},{\"filename\":\"six\",\"url\":\"u6\"}]}");
+        dispatch(m, "MESSAGE_CREATE", json);
+    }
+    c = model_find_channel(m, "201");
+    msg = &c->msgs[0];
+    CHECK(strcmp(msg->text, "look\n[image: cat.png 800x600]\n[attachment: notes.txt]\n[image: pic.jpg 10x20]\n[attachment: bad]\n[attachment: five]") == 0);
+    CHECK(msg->natt == MODEL_MAX_ATTACHMENTS && msg->att != NULL);
+    CHECK(strcmp(msg->att[0].url, "https://media.example/a/cat.png?ex=1&hm=2") == 0 && msg->att[0].is_image &&
+          msg->att[0].width == 800 && msg->att[0].height == 600 && strcmp(msg->att[0].name, "cat.png") == 0);
+    CHECK(strcmp(msg->att[1].url, "https://cdn.example/a/notes.txt") == 0 && !msg->att[1].is_image);
+    CHECK(msg->att[2].is_image && msg->att[2].width == 10);
+    /* a message without attachments has none, and an over-long address is dropped rather than cut */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"11\",\"channel_id\":\"201\",\"content\":\"plain\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}");
+    CHECK(model_find_channel(m, "201")->msgs[1].att == NULL && model_find_channel(m, "201")->msgs[1].natt == 0);
+    {
+        char big[1200];
+
+        strcpy(big, "{\"id\":\"12\",\"channel_id\":\"201\",\"content\":\"\",\"author\":{\"id\":\"1\",\"username\":\"a\"},\"attachments\":[{\"filename\":\"x.png\",\"width\":1,\"height\":1,\"url\":\"");
+        memset(big + strlen(big), 'a', 600);
+        strcpy(big + strlen(big), "\"}]}");
+        dispatch(m, "MESSAGE_CREATE", big);
+        CHECK(model_find_channel(m, "201")->msgs[2].att == NULL);
+    }
+    /* deleting and replacing release them (the sanitizer run checks) */
+    dispatch(m, "MESSAGE_DELETE", "{\"id\":\"10\",\"channel_id\":\"201\"}");
+    CHECK(model_find_message(model_find_channel(m, "201"), "10") == NULL);
+    model_free(m);
+}
+
 static void test_direct_messages(void)
 {
     Model *m = start();
@@ -551,6 +594,7 @@ int main(void)
     test_history_and_cap();
     test_reconnect();
     test_direct_messages();
+    test_attachments();
     test_fuzz();
     TEST_DONE("model");
 }

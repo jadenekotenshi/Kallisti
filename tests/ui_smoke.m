@@ -10,6 +10,8 @@
 #import "AppController.h"
 #import "SecretField.h"
 #import "ChannelWindow.h"
+#import "ImageWindow.h"
+#import "ImageListController.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -55,6 +57,16 @@ static BOOL hasWindowMsg(AppController *app)
     ChannelWindow *w = [app windowForChannel:@"200"];
 
     return w != nil && [[w messageString] rangeOfString:@"from the window"].location != NSNotFound;
+}
+
+static BOOL hasPicMessage(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
+}
+
+static BOOL hasImageWindow(AppController *app)
+{
+    return [[app imageWindows] count] == 1;
 }
 
 static BOOL hasDM(AppController *app)
@@ -189,6 +201,31 @@ int main(int argc, char **argv)
         [w closeWindow];
         [app channelWindowClosed:w];
         CHECK([app windowForChannel:@"200"] == nil);
+    }
+
+    /* a picture attachment: listed, fetched on request, shown in a window of its own */
+    [main typeText:@"pic"];
+    CHECK(waitFor(hasPicMessage, app, 10.0));
+    {
+        NSArray *items = [app imageItemsForCurrentChannel];
+        ImageItem *item;
+
+        CHECK([items count] == 1);
+        if ([items count] == 1) {
+            item = [items objectAtIndex:0];
+            CHECK([item->name isEqualToString:@"cat.png"] && item->width == 300 && item->height == 200);
+            CHECK([item->label rangeOfString:@"someone: cat.png  (300x200)"].location != NSNotFound);
+            [app openImageItem:item];
+            CHECK(waitFor(hasImageWindow, app, 20.0));
+            if ([[app imageWindows] count] == 1) {
+                NSSize sz = [[[app imageWindows] objectAtIndex:0] imageSize];
+
+                CHECK((int)sz.width == 300 && (int)sz.height == 200);
+                [[[app imageWindows] objectAtIndex:0] closeWindow];
+                [app imageWindowClosed:[[app imageWindows] objectAtIndex:0]];
+                CHECK([[app imageWindows] count] == 0);
+            }
+        }
     }
 
     /* a DM from a stranger lands in Direct Messages, first in the list, as a mention */
