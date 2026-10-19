@@ -3,7 +3,7 @@
 # no mixed declarations, no stdint.
 CC      ?= cc
 CFLAGS  = -std=c89 -pedantic -Wall -Wextra -Wdeclaration-after-statement \
-          -Wno-long-long -Wno-unused-parameter -O2 -g -Icore
+          -Wno-long-long -Wno-unused-parameter -Wno-deprecated-declarations -O2 -g -Icore
 BUILD   = build
 SANFLAGS =
 # make SAN=1 test   -- build everything with AddressSanitizer + UBSan in build-san/
@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http
 
 all: test
 
@@ -47,6 +47,15 @@ tls-smoke:
 	$(CC) -w -g -Icore tests/tls_smoke.c core/*.c -o build/tls_smoke
 	build/tls_smoke
 
-.PHONY: all test lint clean tls-smoke
+# Drives core/http.c against a scripted real HTTP server (tests/http_smoke_server.py), in plaintext and
+# through the vendored TLS engine (the server wraps itself in TLS with a throwaway certificate).
+http-smoke:
+	mkdir -p build
+	openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -subj "/CN=localhost" \
+	    -keyout build/http_smoke.key -out build/http_smoke.pem 2>/dev/null
+	$(CC) -w -g $(SANFLAGS) -Icore tests/http_smoke.c core/*.c -o build/http_smoke
+	build/http_smoke tests/http_smoke_server.py 15911 15912 build/http_smoke.pem build/http_smoke.key
+
+.PHONY: all test lint clean tls-smoke http-smoke
 
 .SECONDARY:

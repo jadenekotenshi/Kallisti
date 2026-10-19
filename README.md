@@ -12,16 +12,21 @@ a scrolling message log, a single-line input field).
   X.509, TLS 1.2 client), unchanged apart from dropping the IRC and DCC parts.
 - `core/json.c` -- a small JSON reader/writer (arena-allocated tree, `\uXXXX` and surrogate pairs to UTF-8,
   depth-limited; no 64-bit integers needed because Discord snowflake ids are JSON strings).
-- Host-side tests for all of it (`make test`, also clean under `make SAN=1 test`).
+- `core/http.c` -- a sans-I/O HTTP/1.1 client, same shape as the TLS engine: a request builder (refuses CR/LF
+  and other control characters in methods, paths, hosts and headers; always asks for `identity` encoding), an
+  incremental response parser (Content-Length, chunked with trailers, read-until-close, 1xx skipping,
+  HEAD/204/304, and a 101 that stops at the end of the headers so the WebSocket bytes stay untouched), and a
+  URL parser for http/https/ws/wss.
+- Host-side tests for all of it (`make test`, also clean under `make SAN=1 test`). `make http-smoke` drives the
+  HTTP code against a scripted real server, in plaintext and through the vendored TLS engine.
 
 ## Plan
 
 Discord needs three things that do not exist in the sibling projects, each as portable C89 with host tests
 before any OPENSTEP code:
 
-1. **HTTP/1.1 client** (`core/http.c`): request building and response parsing (status, headers,
-   `Content-Length` and chunked bodies) over the existing TLS session, for the REST API
-   (`https://discord.com/api/v10/...`: fetch the gateway URL, list guilds/channels, post messages).
+1. ~~**HTTP/1.1 client** (`core/http.c`)~~ -- done, see above. The REST layer on top of it (fetch the gateway
+   URL, list guilds/channels, post messages, rate-limit handling) comes with the gateway work.
 2. **WebSocket client** (`core/ws.c`): the RFC 6455 handshake (SHA-1 accept key) and framing
    (masked client frames, fragmentation, ping/pong/close) for the gateway
    (`wss://gateway.discord.gg/?v=10&encoding=json`, no compression).
@@ -61,6 +66,7 @@ intermediate/root level.
 Host side (macOS/Linux), strict C89 flags approximating gcc 2.7.2:
 
     make test          # all suites
+    make http-smoke    # the HTTP client against a real scripted server (needs python3 and openssl)
     make SAN=1 test    # the same under AddressSanitizer + UBSan
     make lint          # OPENSTEP-compatibility checks (the app/ part needs Makefile.openstep, not yet here)
 
