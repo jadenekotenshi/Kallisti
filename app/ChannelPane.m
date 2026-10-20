@@ -81,18 +81,6 @@ static NSArray *dropped_files(id sender)
 }
 @end
 
-/* The width of a string in a font: OPENSTEP's NSFont measures it, the modern AppKit does it through attributes. */
-static float text_width(NSFont *font, NSString *s)
-{
-#ifdef OPENSTEP
-    return [font widthOfString:s];
-#else
-    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
-
-    return [[[[NSAttributedString alloc] initWithString:s attributes:attrs] autorelease] size].width;
-#endif
-}
-
 static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 
 /* A fixed palette for author names, picked by a cheap hash so a name keeps its colour. */
@@ -201,7 +189,7 @@ static NSColor *author_color(const char *name)
     NSString *s = [inputText string];
     float avail = [inputText frame].size.width - 12.0;
     float lineH = [normalFont ascender] - [normalFont descender] + 2.0;
-    float spaceW = text_width(normalFont, @" ");
+    float spaceW = ui_text_width(normalFont, @" ");
     unsigned i, n = [s length], start = 0;
     int lines = 0;
     float h;
@@ -216,7 +204,7 @@ static NSColor *author_color(const char *name)
 
             for (wi = 0; wi < [words count]; wi++) {
                 NSString *word = [words objectAtIndex:wi];
-                float ww = text_width(normalFont, word);
+                float ww = ui_text_width(normalFont, word);
 
                 if (used > 0 && used + spaceW + ww > avail) {
                     pl++;

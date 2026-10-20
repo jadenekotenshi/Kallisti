@@ -8,6 +8,7 @@ NSTextField *ui_wrapping_label(NSString *text, NSRect frame, BOOL selectable);
 NSTextField *ui_field(NSRect frame);
 NSButton    *ui_switch(NSString *title, NSRect frame);
 NSButton    *ui_button(NSString *title, NSRect frame, id target, SEL action);
+float        ui_text_width(NSFont *font, NSString *s);   /* how wide s is in font, in points */
 NSString    *ui_trim(NSString *s);          /* OpenStep has no NSString trimming method, so this is hand-written */
 
 /* Incoming Discord text are usually UTF-8, though not guaranteed by the protocol.  NSString +stringWithCString: would read them as NeXTSTEP text,

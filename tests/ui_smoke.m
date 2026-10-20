@@ -82,6 +82,43 @@ static BOOL hasNoMyReaction(AppController *app)
     return [s rangeOfString:@"reactui"].location != NSNotFound && [s rangeOfString:@"1*]"].location == NSNotFound;
 }
 
+/* how many pixels of a rendered row are clearly coloured (text is black, white and grey; emoji are not) */
+static int colourfulPixels(NSBitmapImageRep *rep)
+{
+    int x, y, n = 0;
+
+    for (y = 0; y < [rep pixelsHigh]; y++) {
+        for (x = 0; x < [rep pixelsWide]; x++) {
+            NSColor *c = [[rep colorAtX:x y:y] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+            float hi = [c redComponent], lo = [c redComponent];
+
+            if ([c greenComponent] > hi) hi = [c greenComponent];
+            if ([c blueComponent] > hi) hi = [c blueComponent];
+            if ([c greenComponent] < lo) lo = [c greenComponent];
+            if ([c blueComponent] < lo) lo = [c blueComponent];
+            if (hi - lo > 0.25) n++;
+        }
+    }
+    return n;
+}
+
+/* pixels in columns [from, to) that differ from the background pixel at the row's top left: text and pictures */
+static int inkInColumns(NSBitmapImageRep *rep, int from, int to)
+{
+    int x, y, n = 0;
+    NSColor *bg = [[rep colorAtX:0 y:0] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+
+    for (y = 0; y < [rep pixelsHigh]; y++) {
+        for (x = from; x < to && x < [rep pixelsWide]; x++) {
+            NSColor *c = [[rep colorAtX:x y:y] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+
+            if (fabs([c redComponent] - [bg redComponent]) + fabs([c greenComponent] - [bg greenComponent]) +
+                fabs([c blueComponent] - [bg blueComponent]) > 0.5) n++;
+        }
+    }
+    return n;
+}
+
 /* a stand-in for what AppKit hands a drop target */
 @interface FakeDrag : NSObject
 {
@@ -702,6 +739,29 @@ int main(int argc, char **argv)
         [app setEmojiPictures:YES];
         [main typeText:@"newchan"];
         CHECK(waitFor(hasEmojiChannel, app, 10.0));
+
+        /* the same emoji in a channel's name is drawn in the list: coloured pixels where the text alone has only greys */
+        {
+            NSArray *ls = [main listLabels];
+            int row = -1, colourful = 0, colourfulOff = 0;
+            unsigned li;
+
+            for (li = 0; li < [ls count]; li++) {
+                if ([[ls objectAtIndex:li] rangeOfString:@":video_game:-games"].location != NSNotFound) row = (int)li;
+            }
+            CHECK(row >= 0);
+            if (row >= 0) {
+                colourful = colourfulPixels([main renderRow:row width:200.0]);
+                [app setEmojiPictures:NO];
+                colourfulOff = colourfulPixels([main renderRow:row width:200.0]);
+                [app setEmojiPictures:YES];
+                CHECK(colourful >= 3);                                  /* (a game controller is mostly grey: a few coloured buttons) */
+                CHECK(colourfulOff == 0);
+                CHECK(inkInColumns([main renderRow:row width:200.0], 56, 200) > 20);           /* the name after the picture is there too */
+                CHECK(inkInColumns([main renderRow:row width:200.0], 4, 30) > 5);             /* and the "# " before it */
+                CHECK(colourfulPixels([main renderRow:0 width:200.0]) == 0);       /* a row with no emoji stays plain */
+            }
+        }
     }
 
     /* a DM from a stranger lands in Direct Messages, first in the list, as a mention */

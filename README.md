@@ -103,6 +103,10 @@ before any OPENSTEP code:
      as its text; the input is emptied. The files are uploaded as `multipart/form-data` in one request, so a slow link
      shows "Sending n files..." until Discord's reply puts the message in the log. Dragging is the part to check on real
      hardware; Attach File... is the same path without it.
+   - Emoji in the server and channel list: a server, category or channel whose name has Unicode emoji shows them as
+     pictures (the list's cell draws the text in pieces and the pictures between them), following Discord > Show Emoji
+     as Pictures; with it off, or for an emoji the pack has no picture of, the row shows `:names:` as before. UNVERIFIED
+     on OPENSTEP: the drawing uses NSImageCell and the stock text cell, and measures text with `NSFont widthOfString:`.
    - Server names are bold in the list, so they stand out from the channels under them.
    - Discord > Save Message Log... (Cmd-S) writes the messages held for the channel in front (a channel window if one is
      key, else the main window's) to a text file: a title, date separators, `[HH:MM] author: text`, embeds, reactions,

@@ -74,6 +74,18 @@ NSButton *ui_button(NSString *title, NSRect frame, id target, SEL action)
 
 static int trim_char(unichar c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 
+/* The width of a string in a font: OPENSTEP's NSFont measures it, the modern AppKit does it through attributes. */
+float ui_text_width(NSFont *font, NSString *s)
+{
+#ifdef OPENSTEP
+    return [font widthOfString:s];
+#else
+    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
+
+    return [[[[NSAttributedString alloc] initWithString:s attributes:attrs] autorelease] size].width;
+#endif
+}
+
 NSString *ui_trim(NSString *s)
 {
     unsigned a = 0, b = [s length];

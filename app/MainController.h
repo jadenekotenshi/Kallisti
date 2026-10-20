@@ -16,6 +16,8 @@
     NSTextField  *statusLabel;
     NSMutableArray *rows;                 /* ListRow objects, the flattened server/channel tree */
     NSMutableSet   *collapsed;            /* ids of servers whose channels are hidden */
+    id              emojiCell;            /* the list's cell, which draws emoji as pictures */
+    id              imageSource;          /* supplies the emoji pictures (the AppController); not retained */
 }
 - (id)initWithOwner:(id)anOwner model:(Model *)aModel;
 - (void)show;
@@ -29,6 +31,9 @@
 - (void)selectChannelWithId:(NSString *)channelId;
 /* Also used by the tests, which drive the window the way a user would. */
 - (NSArray *)listLabels;
+#ifndef OPENSTEP
+- (NSBitmapImageRep *)renderRow:(int)row width:(float)w;      /* the list row as drawn, for the tests */
+#endif
 - (NSString *)messageString;
 - (NSString *)statusString;
 - (void)typeText:(NSString *)text;

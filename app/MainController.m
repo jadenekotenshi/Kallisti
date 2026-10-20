@@ -9,6 +9,25 @@ enum { ROW_GUILD, ROW_CATEGORY, ROW_CHANNEL };
 
 static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 
+/* A row's text as UTF-8 for EmojiCell: lead + name + tail (the name in capitals, ASCII letters only, if `upper`). */
+static NSData *raw_label(const char *lead, const char *name, const char *tail, int upper)
+{
+    size_t n = strlen(lead) + strlen(name) + strlen(tail);
+    char *buf = (char *)malloc(n + 1), *p;
+    NSData *d;
+
+    if (buf == NULL) return nil;
+    sprintf(buf, "%s%s%s", lead, name, tail);
+    if (upper) {
+        for (p = buf + strlen(lead); p < buf + strlen(lead) + strlen(name); p++) {
+            if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
+        }
+    }
+    d = [NSData dataWithBytes:buf length:n + 1];
+    free(buf);
+    return d;
+}
+
 /* One line of the server/channel list. */
 @interface ListRow : NSObject
 {
@@ -16,25 +35,112 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
     int       kind;
     NSString *ident;
     NSString *label;
+    NSData   *raw;               /* the same text as UTF-8 with its emoji still in it (for drawing them), or nil */
 }
-- (id)initWithKind:(int)k ident:(NSString *)i label:(NSString *)l;
+- (id)initWithKind:(int)k ident:(NSString *)i label:(NSString *)l raw:(NSData *)r;
 @end
 
 @implementation ListRow
-- (id)initWithKind:(int)k ident:(NSString *)i label:(NSString *)l
+- (id)initWithKind:(int)k ident:(NSString *)i label:(NSString *)l raw:(NSData *)r
 {
     self = [super init];
     if (!self) return nil;
     kind = k;
     ident = [i retain];
     label = [l retain];
+    raw = [r retain];
     return self;
 }
 - (void)dealloc
 {
     [ident release];
     [label release];
+    [raw release];
     [super dealloc];
+}
+@end
+
+/* A cell that draws a row's text with its Unicode emoji as pictures. The text is cut at each emoji: the pieces are drawn by the
+ * ordinary text cell and the pictures by image cells (the same NSImageCell/NSTextAttachmentCell machinery the message log
+ * relies on). Without a pack, or for an emoji with no picture, the row is the plain text (emoji as ":names:"). */
+@interface EmojiCell : NSTextFieldCell
+{
+    id      source;              /* answers -emojiPack and -unicodeEmojiImageForKey: (not retained) */
+    NSData *raw;                 /* this row's text as UTF-8, or nil */
+}
+- (void)setSource:(id)s;
+- (void)setRaw:(NSData *)r;
+@end
+
+#define EMOJI_ROW_PICTURE 16.0
+
+@implementation EmojiCell
+- (void)setSource:(id)s { source = s; }
+- (void)setRaw:(NSData *)r
+{
+    if (r != raw) {
+        [raw release];
+        raw = [r retain];
+    }
+}
+- (void)dealloc
+{
+    [raw release];
+    [super dealloc];
+}
+
+/* The cell's own text drawing for one piece, in the cell's colour and font. */
+- (float)drawPiece:(NSString *)piece at:(float)x frame:(NSRect)frame inView:(NSView *)view
+{
+    float w = ui_text_width([self font], piece);
+
+    if ([piece length] == 0) return 0;
+    [super setStringValue:piece];
+    [super drawInteriorWithFrame:NSMakeRect(x, frame.origin.y, w + 8.0, frame.size.height) inView:view];
+    return w;
+}
+
+- (void)drawInteriorWithFrame:(NSRect)frame inView:(NSView *)view
+{
+    EmojiPack *pack = (source != nil && raw != nil) ? [source emojiPack] : NULL;
+    const char *s;
+    size_t len, at = 0, scan = 0, us, ue;
+    float x = frame.origin.x, right = NSMaxX(frame);
+    char key[EMOJI_KEY_MAX];
+    NSString *whole = [self stringValue];
+
+    if (pack == NULL) {
+        [super drawInteriorWithFrame:frame inView:view];
+        return;
+    }
+    s = (const char *)[raw bytes];
+    len = strlen(s);
+    while (x < right && emoji_next(pack, s, len, scan, &us, &ue, key)) {
+        NSImage *img = [source unicodeEmojiImageForKey:S(key)];
+        char *seg;
+
+        scan = ue;
+        if (img == nil) continue;                                      /* no picture: it stays in the text */
+        seg = (char *)malloc(us - at + 1);
+        if (seg == NULL) break;
+        memcpy(seg, s + at, us - at);
+        seg[us - at] = '\0';
+        x += [self drawPiece:S(seg) at:x frame:frame inView:view];
+        free(seg);
+        {
+            NSImageCell *ic = [[[NSImageCell alloc] initImageCell:img] autorelease];
+
+            [ic setImageFrameStyle:NSImageFrameNone];
+            [ic drawWithFrame:NSMakeRect(x + 1.0, frame.origin.y + (frame.size.height - EMOJI_ROW_PICTURE) / 2.0,
+                                         EMOJI_ROW_PICTURE, EMOJI_ROW_PICTURE) inView:view];
+            x += EMOJI_ROW_PICTURE + 3.0;
+        }
+        at = ue;
+    }
+    if (at < len && x < right) {
+        [self drawPiece:S(s + at) at:x frame:frame inView:view];
+    }
+    [super setStringValue:whole];
 }
 @end
 
@@ -65,7 +171,7 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 {
     [window setDelegate:nil];
     [window release];
-    [listTable release]; [pane release]; [statusLabel release];
+    [listTable release]; [emojiCell release]; [pane release]; [statusLabel release];
     [rows release]; [collapsed release];
     [super dealloc];
 }
@@ -95,7 +201,11 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
     [col setWidth:LIST_WIDTH - 20.0];
     [col setEditable:NO];
     listTable = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, LIST_WIDTH, 100)];
+    emojiCell = [[EmojiCell alloc] init];
+    [emojiCell setFont:[NSFont systemFontOfSize:12.0]];
+    [col setDataCell:emojiCell];
     [listTable addTableColumn:col];
+    [listTable setRowHeight:18.0];
     [listTable setDataSource:(id)self];
     [listTable setDelegate:(id)self];
     [listTable setAllowsMultipleSelection:NO];
@@ -155,7 +265,9 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
         [self buildWindow];
         [self reloadList];
     }
+    imageSource = source;
     [pane setImageSource:source showInline:showInline];
+    [listTable reloadData];                          /* emoji in names appear or vanish with the setting */
 }
 
 - (void)reloadMessages { [pane reload]; }
@@ -191,6 +303,10 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
     if ([cell respondsToSelector:@selector(setFont:)]) {
         [cell setFont:isGuild ? [NSFont boldSystemFontOfSize:12.0] : [NSFont systemFontOfSize:12.0]];
     }
+    if ([cell isKindOfClass:[EmojiCell class]]) {
+        [cell setSource:imageSource];
+        [cell setRaw:(row >= 0 && row < (int)[rows count]) ? ((ListRow *)[rows objectAtIndex:row])->raw : nil];
+    }
 }
 
 - (void)reloadList
@@ -208,24 +324,32 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 
         if (g->unavailable) title = [title stringByAppendingString:@" (unavailable)"];
         [rows addObject:[[[ListRow alloc] initWithKind:ROW_GUILD ident:gid
-                                                 label:[(open ? @"- " : @"+ ") stringByAppendingString:title]] autorelease]];
+                                                 label:[(open ? @"- " : @"+ ") stringByAppendingString:title]
+                                                   raw:raw_label(open ? "- " : "+ ", g->name, g->unavailable ? " (unavailable)" : "", 0)] autorelease]];
         if (!open) continue;
         for (ci = 0; ci < g->nch; ci++) {
             Channel *c = &g->ch[ci];
             NSString *label;
+            char count[24], lead[16];
 
+            count[0] = '\0';
             if (c->type == CH_CATEGORY) {
                 label = [@"  " stringByAppendingString:[S(c->name) uppercaseString]];
-                [rows addObject:[[[ListRow alloc] initWithKind:ROW_CATEGORY ident:S(c->id) label:label] autorelease]];
+                [rows addObject:[[[ListRow alloc] initWithKind:ROW_CATEGORY ident:S(c->id) label:label
+                                                           raw:raw_label("  ", c->name, "", 1)] autorelease]];
             } else {
                 label = [NSString stringWithFormat:@"%@%@%@", c->parent_id[0] ? @"    " : @"  ",
                          c->type == CH_DM ? @"@" : @"# ", S(c->name)];
                 if (c->mentions > 0) {
                     label = [label stringByAppendingFormat:@" (%d!)", c->unread];
+                    sprintf(count, " (%d!)", c->unread);
                 } else if (c->unread > 0) {
                     label = [label stringByAppendingFormat:@" (%d)", c->unread];
+                    sprintf(count, " (%d)", c->unread);
                 }
-                [rows addObject:[[[ListRow alloc] initWithKind:ROW_CHANNEL ident:S(c->id) label:label] autorelease]];
+                sprintf(lead, "%s%s", c->parent_id[0] ? "    " : "  ", c->type == CH_DM ? "@" : "# ");
+                [rows addObject:[[[ListRow alloc] initWithKind:ROW_CHANNEL ident:S(c->id) label:label
+                                                           raw:raw_label(lead, c->name, count, 0)] autorelease]];
             }
         }
     }
@@ -319,6 +443,20 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 {
     [owner mainController:self didSubmitText:text forChannel:channelId];
 }
+
+#ifndef OPENSTEP
+/* For the tests: row `row` of the list drawn the way the table draws it, as pixels. */
+- (NSBitmapImageRep *)renderRow:(int)row width:(float)w
+{
+    NSRect r = [listTable rectOfRow:row];
+    NSBitmapImageRep *rep;
+
+    r.size.width = w;
+    rep = [listTable bitmapImageRepForCachingDisplayInRect:r];
+    [listTable cacheDisplayInRect:r toBitmapImageRep:rep];
+    return rep;
+}
+#endif
 
 - (NSArray *)listLabels
 {
