@@ -31,6 +31,8 @@
 #define REST_MAX_JOBS 16
 #define REST_MAX_BUCKETS 24
 #define REST_RESULTQ 4
+#define REST_MAX_UPLOAD (10L * 1024L * 1024L)   /* bytes of files in one message (Discord's default limit) */
+#define REST_MAX_FILES 10
 #define REST_MAX_CONTENT 2000                 /* characters in a message */
 #define REST_MAX_WAIT_MS 60000L               /* longer rate-limit waits are reported instead of waited out */
 
@@ -45,6 +47,7 @@ typedef struct {
     int kind;
     int is_get;
     char method[8];
+    char ctype[96];              /* Content-Type of the body, "" for JSON */
     char path[256];              /* below the API prefix, with the query */
     char route[264];             /* the rate-limit key: method and path without the query */
     char *body;
@@ -110,6 +113,17 @@ long rest_get_channels(RestClient *rc, const char *guild_id);
 long rest_get_messages(RestClient *rc, const char *channel_id, int limit, const char *before);
 /* content is UTF-8, 1..2000 characters, not only whitespace. */
 long rest_post_message(RestClient *rc, const char *channel_id, const char *content);
+/* A file to attach: the name it is to have and its bytes (which must stay valid until rest_post_message_files returns). */
+typedef struct {
+    const char *name;
+    const unsigned char *data;
+    size_t len;
+} RestFile;
+/* Posts a message with 1..REST_MAX_FILES files (together at most REST_MAX_UPLOAD bytes) as multipart/form-data.
+ * content may be empty. The reply is the message, like rest_post_message()'s. A name is cut to its last path component
+ * and quotes, backslashes and control characters in it become '_'. */
+long rest_post_message_files(RestClient *rc, const char *channel_id, const char *content, const RestFile *files, int nfiles);
+
 /* Puts our reaction on a message (PUT .../reactions/{emoji}/@me), or removes it (remove != 0, DELETE). `emoji` is UTF-8:
  * the emoji itself, or "name:id" for a custom one; it is percent-encoded here. */
 long rest_react(RestClient *rc, const char *channel_id, const char *message_id, const char *emoji, int remove);

@@ -234,6 +234,77 @@ static void test_typing(void)
     rest_free(&rc);
 }
 
+static void test_files(void)
+{
+    RestClient rc;
+    RestResult res;
+    char t[4096];
+    RestFile f[3];
+    static unsigned char big[200];
+    long id;
+    const char *b;
+
+    rest_init(&rc, "tok", 1);
+    f[0].name = "notes.txt"; f[0].data = (const unsigned char *)"hello file"; f[0].len = 10;
+    f[1].name = "/tmp/dir\\evil\"na\nme.png"; f[1].data = (const unsigned char *)"PNGDATA"; f[1].len = 7;
+    CHECK(rest_post_message_files(&rc, "x", "hi", f, 1) == REST_E_BAD && rest_post_message_files(&rc, "5", NULL, f, 1) == REST_E_BAD &&
+          rest_post_message_files(&rc, "5", "hi", f, 0) == REST_E_BAD && rest_post_message_files(&rc, "5", "hi", NULL, 1) == REST_E_BAD &&
+          rest_post_message_files(&rc, "5", "hi", f, REST_MAX_FILES + 1) == REST_E_BAD);
+    f[2].name = "bad\xff"; f[2].data = big; f[2].len = 1;
+    CHECK(rest_post_message_files(&rc, "5", "hi", &f[2], 1) == REST_E_BAD);
+    f[2].name = "huge"; f[2].data = big; f[2].len = (size_t)REST_MAX_UPLOAD + 1;
+    CHECK(rest_post_message_files(&rc, "5", "hi", &f[2], 1) == REST_E_TOO_LONG);
+    id = rest_post_message_files(&rc, "5", "caption \xc3\xa9", f, 2);
+    CHECK(id > 0 && next_req(&rc, 0, t, sizeof(t)) == id);
+    CHECK(STARTS(t, "POST /api/v10/channels/5/messages HTTP/1.1\r\n"));
+    CHECK(has(t, "Content-Type: multipart/form-data; boundary=KallistiFormBoundary"));
+    b = strstr(t, "boundary=") + 9;
+    CHECK(has(t, "name=\"payload_json\"") && has(t, "{\"content\":\"caption \xc3\xa9\",\"attachments\":[{\"id\":0,\"filename\":\"notes.txt\"},{\"id\":1,\"filename\":\"evil_na_me.png\"}]}"));
+    CHECK(has(t, "name=\"files[0]\"; filename=\"notes.txt\"\r\nContent-Type: application/octet-stream\r\n\r\nhello file\r\n--"));
+    CHECK(has(t, "name=\"files[1]\"; filename=\"evil_na_me.png\"") && has(t, "\r\n\r\nPNGDATA\r\n--"));
+    CHECK(b != NULL && has(t, "PNGDATA\r\n--KallistiFormBoundary") && strstr(t, "--\r\n") != NULL);
+    {
+        char want[64];
+        size_t blen = strcspn(b, "\r");
+
+        sprintf(want, "Content-Length: ");
+        CHECK(has(t, want) && blen > 10);
+    }
+    answer(&rc, 0, 200, "", "{\"id\":\"99\",\"channel_id\":\"5\",\"content\":\"x\"}");
+    CHECK(rest_next_result(&rc, &res) && res.ok && res.kind == REST_POST_MESSAGE);
+    /* a file that contains the boundary text gets a different boundary */
+    {
+        static unsigned char clash[64];
+
+        strcpy((char *)clash, "xx--KallistiFormBoundary");
+        sprintf((char *)clash + strlen((char *)clash), "%ld0yy", rc.next_id + 1);
+        f[2].name = "c.bin"; f[2].data = clash; f[2].len = strlen((char *)clash);
+        id = rest_post_message_files(&rc, "5", "", &f[2], 1);
+        CHECK(id > 0 && next_req(&rc, 0, t, sizeof(t)) == id);
+        b = strstr(t, "boundary=") + 9;
+        CHECK(strncmp(b, "KallistiFormBoundary", 20) == 0 && b[strcspn(b, "\r")-1] != '0');
+        CHECK(has(t, "\"content\":\"\""));
+    }
+    /* the total is what counts (exactly the limit passes), and an empty file is fine */
+    {
+        unsigned char *mem = (unsigned char *)calloc((size_t)REST_MAX_UPLOAD, 1);
+
+        CHECK(mem != NULL);
+        if (mem != NULL) {
+            f[0].name = "a"; f[0].data = mem; f[0].len = (size_t)REST_MAX_UPLOAD - 1;
+            f[1].name = "b"; f[1].data = mem; f[1].len = 1;
+            f[2].name = "c"; f[2].data = mem; f[2].len = 1;
+            CHECK(rest_post_message_files(&rc, "5", "hi", f, 2) > 0);
+            CHECK(rest_post_message_files(&rc, "5", "hi", f, 3) == REST_E_TOO_LONG);
+            f[2].len = 0;
+            f[2].data = NULL;
+            CHECK(rest_post_message_files(&rc, "5", "hi", &f[2], 1) > 0);
+            free(mem);
+        }
+    }
+    rest_free(&rc);
+}
+
 static void test_errors(void)
 {
     RestClient rc;
@@ -583,6 +654,7 @@ int main(void)
     test_create_dm();
     test_react();
     test_typing();
+    test_files();
     test_errors();
     test_429();
     test_buckets_and_global();

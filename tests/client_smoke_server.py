@@ -210,6 +210,30 @@ async def rest_conn(reader, writer):
                 m = msg(state['next_id'], content, author='42', name='Kallisti-bot', channel='900', guild=None)
                 await reply(writer, HTTPStatus.OK, m)
                 await broadcast('MESSAGE_CREATE', m)
+            elif method == 'POST' and path == '/api/v10/channels/200/messages' and headers.get('content-type', '').startswith('multipart/form-data'):
+                import re
+                boundary = headers['content-type'].split('boundary=')[1].strip().encode()
+                fields = {}
+                for part in body.split(b'--' + boundary)[1:-1]:
+                    head, _, data = part.partition(b'\r\n\r\n')
+                    if data.endswith(b'\r\n'):
+                        data = data[:-2]
+                    hdr = head.decode('utf-8', 'replace')
+                    fname = re.search(r'filename="([^"]*)"', hdr)
+                    fields[re.search(r' name="([^"]*)"', hdr).group(1)] = (fname.group(1) if fname else None, data)
+                payload = json.loads(fields['payload_json'][1])
+                summary = []
+                atts = []
+                for i, a in enumerate(payload['attachments']):
+                    fn, data = fields['files[%d]' % i]
+                    good = fn == a['filename'] and data == bytes((k * 7 + k // 256) & 255 for k in range(len(data)))
+                    summary.append('%s:%d:%s' % (fn, len(data), 'ok' if good else 'BAD'))
+                    atts.append({'id': str(i), 'filename': fn, 'size': len(data), 'url': 'https://cdn.invalid/' + fn})
+                state['next_id'] += 1
+                m = msg(state['next_id'], (payload['content'] + ' [' + ' '.join(summary) + ']').strip(), author='42', name='Kallisti-bot')
+                m['attachments'] = atts
+                await reply(writer, HTTPStatus.OK, m)
+                await broadcast('MESSAGE_CREATE', m)
             elif method == 'POST' and path == '/api/v10/channels/200/messages':
                 content = json.loads(body)['content']
                 if content == 'ratelimit' and not state['limited']:

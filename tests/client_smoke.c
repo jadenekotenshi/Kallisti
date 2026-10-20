@@ -182,6 +182,11 @@ static int c_has_text(KClient *kc, const char *text)
     return 0;
 }
 static int c_idle_rest(KClient *kc, Seen *s) { return rest_pending(&kc->rest) == 0 && kc->npend == 0; }
+static int count_text(KClient *kc, const char *text);
+static int c_has_upload(KClient *kc, Seen *s)
+{
+    return count_text(kc, "with files [notes.bin:300000:ok tiny.dat:5:ok]\n[attachment: notes.bin]\n[attachment: tiny.dat]") > 0;
+}
 static int c_stopped(KClient *kc, Seen *s) { return kc->state == KC_STOPPED; }
 
 static int count_text(KClient *kc, const char *text)
@@ -518,6 +523,27 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(run_until(&kc, &seen, c_error1, 15000));
         CHECK(strstr(seen.errors[0], "Missing Permissions") != NULL);
         CHECK(kc_react(&kc, "200", mid, "", 0) < 0 && kc_react(&kc, "200", "abc", "x", 0) < 0 && kc_react(&kc, "bad", mid, "x", 0) < 0);
+    }
+
+    /* files attached to a message: sent as multipart, byte for byte (the server checks the pattern and the names) */
+    {
+        static unsigned char data[300000];
+        RestFile f[2];
+        size_t k;
+
+        for (k = 0; k < sizeof(data); k++) {
+            data[k] = (unsigned char)((k * 7 + k / 256) & 255);
+        }
+        f[0].name = "notes.bin";
+        f[0].data = data;
+        f[0].len = 300000;
+        f[1].name = "tiny.dat";
+        f[1].data = data;
+        f[1].len = 5;
+        CHECK(kc_send_files(&kc, "200", "with files", f, 2) == 0);
+        CHECK(run_until(&kc, &seen, c_has_upload, 20000));
+        CHECK(count_text(&kc, "with files [notes.bin:300000:ok tiny.dat:5:ok]\n[attachment: notes.bin]\n[attachment: tiny.dat]") == 1);
+        CHECK(kc_send_files(&kc, "x", "t", f, 1) < 0 && kc_send_files(&kc, "200", "t", f, 0) < 0);
     }
 
     /* typing: a bodyless POST that nobody answers for; bad ids are refused up front */

@@ -92,6 +92,11 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
     [owner channelWindow:self userTypingInChannel:cid];
 }
 
+- (BOOL)channelPane:(ChannelPane *)p didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)cid
+{
+    return [owner channelWindow:self didDropFiles:paths caption:caption forChannel:cid];
+}
+
 - (void)channelPane:(ChannelPane *)p didSubmitText:(NSString *)text forChannel:(NSString *)cid
 {
     [owner channelWindow:self didSubmitText:text forChannel:cid];

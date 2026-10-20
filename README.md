@@ -95,6 +95,11 @@ before any OPENSTEP code:
    - Downloads: Discord > Attachments in This Channel... (Cmd-I) lists every file attached to the messages shown, not only
      pictures. Save... (or a double-click on a file that is not a picture) asks where, then fetches the file from
      Discord's own address, untouched (up to 32 MB), and writes it as it came. Open still shows pictures in the viewer.
+   - Sending files: drag files from the Workspace onto the message log or the input, or choose Discord > Attach File...
+     (Cmd-U). They go as one message (up to 10 files, 10 MB in all, plain files only) with whatever is typed in the input
+     as its text; the input is emptied. The files are uploaded as `multipart/form-data` in one request, so a slow link
+     shows "Sending n files..." until Discord's reply puts the message in the log. Dragging is the part to check on real
+     hardware; Attach File... is the same path without it.
    - Reacting: Discord > React to a Message... (Cmd-R) lists the latest messages; pick one and type an emoji --
      `:thumbsup:`, a custom emoji's `:name:` (one seen in the channel), a pasted `<:name:id>`, or the emoji itself -- or
      choose from the Common menu. React adds yours, Remove Mine takes it back. The bot needs the Add Reactions

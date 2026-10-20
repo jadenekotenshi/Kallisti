@@ -24,16 +24,52 @@
 }
 @end
 
-/* The text view typed into: Return asks the pane to send, Shift- or Alt-Return makes a new line. */
-@interface InputView : NSTextView
+/* The paths on a drag's pasteboard, or nil if it carries no files. */
+static NSArray *dropped_files(id sender)
+{
+    NSPasteboard *pb = [sender draggingPasteboard];
+
+    if ([pb availableTypeFromArray:[NSArray arrayWithObject:NSFilenamesPboardType]] == nil) return nil;
+    return [pb propertyListForType:NSFilenamesPboardType];
+}
+
+/* A text view that takes files dropped on it (the message log and the input): the pane sends them. Anything else dropped
+ * is the text view's own business. */
+@interface DropTextView : NSTextView
 {
     ChannelPane *pane;
 }
 - (void)setPane:(ChannelPane *)p;
 @end
 
-@implementation InputView
+@implementation DropTextView
 - (void)setPane:(ChannelPane *)p { pane = p; }
+- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
+{
+    return dropped_files(sender) != nil ? NSDragOperationCopy : [super draggingEntered:sender];
+}
+- (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)sender
+{
+    return dropped_files(sender) != nil ? NSDragOperationCopy : [super draggingUpdated:sender];
+}
+- (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)sender
+{
+    return dropped_files(sender) != nil ? YES : [super prepareForDragOperation:sender];
+}
+- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
+{
+    NSArray *files = dropped_files(sender);
+
+    if (files == nil) return [super performDragOperation:sender];
+    return [pane acceptDroppedFiles:files];
+}
+@end
+
+/* The text view typed into: Return asks the pane to send, Shift- or Alt-Return makes a new line. */
+@interface InputView : DropTextView
+@end
+
+@implementation InputView
 - (void)insertNewline:(id)sender
 {
     unsigned flags = [[NSApp currentEvent] modifierFlags];
@@ -101,7 +137,9 @@ static NSColor *author_color(const char *name)
                                                                    frame.size.height - INPUT_HEIGHT)];
     [messageScroll setHasVerticalScroller:YES];
     [messageScroll setBorderType:NSBezelBorder];
-    messageText = [[NSTextView alloc] initWithFrame:[[messageScroll contentView] frame]];
+    messageText = [[DropTextView alloc] initWithFrame:[[messageScroll contentView] frame]];
+    [(DropTextView *)messageText setPane:self];
+    [messageText registerForDraggedTypes:[NSArray arrayWithObject:NSFilenamesPboardType]];
     [messageText setEditable:NO];
     [messageText setSelectable:YES];
     [messageText setRichText:YES];
@@ -120,6 +158,7 @@ static NSColor *author_color(const char *name)
     [inputScroll setBorderType:NSBezelBorder];
     inputText = [[InputView alloc] initWithFrame:[[inputScroll contentView] frame]];
     [(InputView *)inputText setPane:self];
+    [inputText registerForDraggedTypes:[NSArray arrayWithObjects:NSFilenamesPboardType, NSStringPboardType, nil]];
     [inputText setRichText:NO];
     [inputText setFont:normalFont];
     [inputText setVerticallyResizable:YES];
@@ -264,6 +303,23 @@ static NSColor *author_color(const char *name)
 - (NSString *)typingString { return [typingLabel stringValue]; }
 
 - (NSString *)draft { return [inputText string]; }
+- (id)inputView { return inputText; }
+- (id)logView { return messageText; }
+
+- (BOOL)acceptDroppedFiles:(NSArray *)paths
+{
+    if ([paths count] == 0) return NO;
+    if (channel == nil) {
+        [self appendNotice:@"Choose a channel first."];
+        return NO;
+    }
+    if (![owner respondsToSelector:@selector(channelPane:didDropFiles:caption:forChannel:)] ||
+        ![owner channelPane:self didDropFiles:paths caption:[inputText string] forChannel:channel]) {
+        return NO;
+    }
+    [self setDraft:@""];
+    return YES;
+}
 - (float)inputHeight { return (inputHeight > 0) ? inputHeight : INPUT_HEIGHT; }
 
 - (void)setImageSource:(id)source showInline:(BOOL)showInline

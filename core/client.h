@@ -168,6 +168,10 @@ void kc_image_free(KImage *im);
  * in KImage.tiff / tiff_len and nothing decoded. Returns 0, or -1 if the queue is full or the address is no good. */
 int kc_fetch_file(KClient *kc, const char *url, unsigned long tag);
 
+/* Sends a message with files attached (see rest_post_message_files for the limits). `text` may be empty. Errors, including a
+ * file Discord refuses, come back as KE_ERROR. Returns 0 or a REST_E_* code. */
+int kc_send_files(KClient *kc, const char *channel_id, const char *text, const RestFile *files, int nfiles);
+
 /* Lets the channel see that we are typing (about 10 seconds' worth). Silent on failure. Returns 0 or a REST_E_* code. */
 int kc_typing(KClient *kc, const char *channel_id);
 

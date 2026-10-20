@@ -36,7 +36,12 @@
 - (NSString *)messageString;                  /* the log's text, for the tests */
 - (void)layoutSubviews;                       /* place the log and the input; the pane's view calls this on resizing */
 - (void)inputReturnPressed:(BOOL)newline;     /* Return sends; Shift- or Alt-Return (newline YES) adds a line */
-- (void)setDraft:(NSString *)text;            /* put text in the input without sending, for the tests */
+- (void)setDraft:(NSString *)text;
+/* Files dropped on the log or the input (or chosen with Attach File...): sent with what is typed as the caption. Returns whether
+ * they were sent; then the input is emptied. */
+- (BOOL)acceptDroppedFiles:(NSArray *)paths;
+- (id)inputView;
+- (id)logView;            /* put text in the input without sending, for the tests */
 - (NSString *)draft;
 - (void)updateTypingAt:(KMs)now;                /* refresh the "is typing" line; call it often, it is cheap */
 - (NSString *)typingString;
@@ -48,6 +53,8 @@
 - (void)channelPane:(ChannelPane *)pane didSubmitText:(NSString *)text forChannel:(NSString *)channelId;
 /* The person is typing (called for every change to a non-empty input; the owner decides how often to tell Discord). */
 - (void)channelPane:(ChannelPane *)pane userTypingInChannel:(NSString *)channelId;
+/* Files were dropped; the owner sends them (answering whether it did). */
+- (BOOL)channelPane:(ChannelPane *)pane didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)channelId;
 @end
 
 @interface NSObject (ChannelPaneImageSource)

@@ -33,6 +33,9 @@
 - (NSString *)statusString;
 - (void)typeText:(NSString *)text;
 - (void)setDraft:(NSString *)text;
+- (void)attachFiles:(NSArray *)paths;            /* as if dropped on the message box */
+- (id)inputView;                                 /* the views that take dropped files, for the tests */
+- (id)logView;
 - (void)updateTypingAt:(KMs)now;                /* the "is typing" line */
 - (NSString *)typingString;
 - (NSString *)draft;
@@ -43,6 +46,7 @@
 @interface NSObject (MainControllerOwner)
 - (void)mainController:(MainController *)mc didSelectChannel:(NSString *)channelId;
 - (void)mainController:(MainController *)mc userTypingInChannel:(NSString *)channelId;
+- (BOOL)mainController:(MainController *)mc didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)channelId;
 - (void)mainController:(MainController *)mc didSubmitText:(NSString *)text forChannel:(NSString *)channelId;
 - (void)mainController:(MainController *)mc didRequestWindowForChannel:(NSString *)channelId;
 - (void)mainControllerWindowClosed:(MainController *)mc;

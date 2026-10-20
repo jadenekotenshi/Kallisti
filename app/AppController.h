@@ -66,6 +66,8 @@
  * custom emoji seen in the channel, or a pasted <:name:id>. Returns whether it was sent. */
 - (BOOL)reactToMessage:(NSString *)messageId withText:(NSString *)text remove:(BOOL)remove;
 - (void)openImageItem:(ImageItem *)item;
+/* Sends files with a caption to a channel (what a drop does); problems become notices to `target`. */
+- (BOOL)sendFiles:(NSArray *)paths caption:(NSString *)caption toChannel:(NSString *)channelId notify:(id)target;
 - (NSArray *)imageWindows;
 - (BOOL)loadEmojiPackFromPath:(NSString *)path;   /* also what launch does with the pack in the app bundle */
 - (void)setEmojiPictures:(BOOL)on;                 /* Discord > Show Emoji as Pictures */

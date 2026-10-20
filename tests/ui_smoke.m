@@ -82,6 +82,40 @@ static BOOL hasNoMyReaction(AppController *app)
     return [s rangeOfString:@"reactui"].location != NSNotFound && [s rangeOfString:@"1*]"].location == NSNotFound;
 }
 
+/* a stand-in for what AppKit hands a drop target */
+@interface FakeDrag : NSObject
+{
+    NSPasteboard *pb;
+}
+- (id)initWithPaths:(NSArray *)paths;
+@end
+
+@implementation FakeDrag
+- (id)initWithPaths:(NSArray *)paths
+{
+    self = [super init];
+    pb = [[NSPasteboard pasteboardWithUniqueName] retain];
+    [pb declareTypes:[NSArray arrayWithObject:NSFilenamesPboardType] owner:nil];
+    [pb setPropertyList:paths forType:NSFilenamesPboardType];
+    return self;
+}
+- (NSPasteboard *)draggingPasteboard { return pb; }
+@end
+
+static BOOL hasDropped(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"caption here [dropped.bin:70000:ok]"].location != NSNotFound;
+}
+
+static BOOL hasDroppedTwice(AppController *app)
+{
+    NSString *s = [[app mainController] messageString];
+    NSRange first = [s rangeOfString:@"[dropped.bin:70000:ok]"];
+
+    return first.location != NSNotFound && [s rangeOfString:@"[dropped.bin:70000:ok]" options:0
+                                                       range:NSMakeRange(NSMaxRange(first), [s length] - NSMaxRange(first))].location != NSNotFound;
+}
+
 static BOOL isTyping(AppController *app)
 {
     return [[[app mainController] typingString] isEqualToString:@"Typist is typing..."];
@@ -407,6 +441,44 @@ int main(int argc, char **argv)
         CHECK(typingPosts(app, &after));
         CHECK(after == before + 1);       /* one post for all that typing (and none for the next message's first keystroke) */
         [main setDraft:@""];
+    }
+
+    /* files dropped on the input go with what is typed there as the caption; on the log they go alone; a folder is refused */
+    {
+        NSString *dir = @"/tmp/kallisti_ui_drop";
+        NSString *file = @"/tmp/kallisti_ui_drop/dropped.bin";
+        unsigned char *bytes = (unsigned char *)malloc(70000);
+        FILE *f;
+        int k;
+        FakeDrag *d;
+
+        mkdir("/tmp/kallisti_ui_drop", 0755);
+        for (k = 0; k < 70000; k++) bytes[k] = (unsigned char)((k * 7 + k / 256) & 255);
+        f = fopen([file cString], "wb");
+        CHECK(f != NULL);
+        if (f != NULL) {
+            fwrite(bytes, 1, 70000, f);
+            fclose(f);
+        }
+        free(bytes);
+        [main setDraft:@"caption here"];
+        d = [[[FakeDrag alloc] initWithPaths:[NSArray arrayWithObject:file]] autorelease];
+        CHECK([[main inputView] draggingEntered:(id)d] == NSDragOperationCopy);
+        CHECK([[main inputView] prepareForDragOperation:(id)d]);
+        CHECK([[main inputView] performDragOperation:(id)d]);
+        CHECK([[main draft] length] == 0);                           /* the caption went with the file */
+        CHECK(waitFor(hasDropped, app, 20.0));
+        d = [[[FakeDrag alloc] initWithPaths:[NSArray arrayWithObject:file]] autorelease];
+        CHECK([[main logView] performDragOperation:(id)d]);
+        CHECK(waitFor(hasDroppedTwice, app, 20.0));
+        d = [[[FakeDrag alloc] initWithPaths:[NSArray arrayWithObject:dir]] autorelease];
+        CHECK(![[main inputView] performDragOperation:(id)d]);
+        CHECK([[[app mainController] messageString] rangeOfString:@"kallisti_ui_drop is a folder"].location != NSNotFound);
+        d = [[[FakeDrag alloc] initWithPaths:[NSArray arrayWithObject:@"/tmp/kallisti_ui_drop/nonexistent"]] autorelease];
+        CHECK(![[main inputView] performDragOperation:(id)d]);
+        CHECK([[[app mainController] messageString] rangeOfString:@"Cannot find nonexistent"].location != NSNotFound);
+        remove([file cString]);
+        rmdir("/tmp/kallisti_ui_drop");
     }
 
     /* who is typing shows on the line above the input, and a message from them ends it */

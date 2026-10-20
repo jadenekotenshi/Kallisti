@@ -97,6 +97,7 @@ static KMs app_now_ms(void)
 - (void)reloadAllMessages;
 - (void)closeImageWindows;
 - (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target;
+- (void)attachFile:(id)sender;
 @end
 
 @implementation AppController
@@ -180,6 +181,7 @@ static KMs app_now_ms(void)
     [self addItem:@"Open Channel in New Window" action:@selector(openCurrentInWindow:) key:@"o" target:self toMenu:m];
     [self addItem:@"Attachments in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
     [self addItem:@"React to a Message..." action:@selector(showReact:) key:@"r" target:self toMenu:m];
+    [self addItem:@"Attach File..." action:@selector(attachFile:) key:@"u" target:self toMenu:m];
     [self addItem:@"Show Images Inline (Experimental)" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
     inlineItem = [m itemWithTitle:@"Show Images Inline (Experimental)"];
     [self addItem:@"Show Emoji as Pictures" action:@selector(toggleEmoji:) key:@"" target:self toMenu:m];
@@ -577,6 +579,119 @@ static KMs app_now_ms(void)
 }
 
 - (void)mainController:(MainController *)mc userTypingInChannel:(NSString *)channelId { [self userTypingInChannel:channelId]; }
+
+- (BOOL)mainController:(MainController *)mc didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)channelId
+{
+    return [self sendFiles:paths caption:caption toChannel:channelId notify:mc];
+}
+
+- (BOOL)channelWindow:(ChannelWindow *)cw didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)channelId
+{
+    return [self sendFiles:paths caption:caption toChannel:channelId notify:cw];
+}
+
+/* Discord > Attach File...: pick files and send them to the channel shown in the main window, with what is typed there. */
+- (void)attachFile:(id)sender
+{
+    NSOpenPanel *op = [NSOpenPanel openPanel];
+
+    if (![mainController currentChannel]) {
+        NSRunAlertPanel(@"No channel", @"Choose a channel first.", @"OK", nil, nil);
+        return;
+    }
+    [op setAllowsMultipleSelection:YES];
+    [op setCanChooseDirectories:NO];
+    if ([op runModalForDirectory:nil file:nil types:nil] == NSOKButton) {
+        [mainController attachFiles:[op filenames]];
+    }
+}
+
+/* Sends files (at most REST_MAX_FILES, REST_MAX_UPLOAD bytes in all) as one message with `caption` as its text.
+ * Returns whether it was handed to the engine; the reason for a no is a notice to `target`. */
+- (BOOL)sendFiles:(NSArray *)paths caption:(NSString *)caption toChannel:(NSString *)channelId notify:(id)target
+{
+    RestFile files[REST_MAX_FILES];
+    unsigned char *mem[REST_MAX_FILES];
+    NSMutableArray *names = [NSMutableArray array];
+    int n = 0, i, rc;
+    long total = 0;
+    BOOL ok = YES;
+    const char *typed;
+    char *sent = NULL;
+    unsigned pi;
+
+    if (!kc || kc->state != KC_ONLINE) {
+        [target appendNotice:@"Not connected; the files were not sent."];
+        return NO;
+    }
+    for (pi = 0; ok && pi < [paths count]; pi++) {
+        NSString *path = [paths objectAtIndex:pi];
+        struct stat st;
+        FILE *f;
+        unsigned char *buf;
+
+        if (n >= REST_MAX_FILES) {
+            [target appendNotice:[NSString stringWithFormat:@"Discord takes at most %d files in a message.", REST_MAX_FILES]];
+            ok = NO;
+        } else if (stat([path cString], &st) != 0) {
+            [target appendNotice:[NSString stringWithFormat:@"Cannot find %@.", [path lastPathComponent]]];
+            ok = NO;
+        } else if (!S_ISREG(st.st_mode)) {
+            [target appendNotice:[NSString stringWithFormat:@"%@ is a folder or special file; only plain files can be sent.", [path lastPathComponent]]];
+            ok = NO;
+        } else if ((long)st.st_size > REST_MAX_UPLOAD || total + (long)st.st_size > REST_MAX_UPLOAD) {
+            [target appendNotice:[NSString stringWithFormat:@"%@ is too big: Discord takes %d MB of files in a message.",
+                                  [path lastPathComponent], (int)(REST_MAX_UPLOAD / (1024L * 1024L))]];
+            ok = NO;
+        } else {
+            buf = (unsigned char *)malloc((size_t)st.st_size + 1);
+            f = buf != NULL ? fopen([path cString], "rb") : NULL;
+            if (f == NULL || fread(buf, 1, (size_t)st.st_size, f) != (size_t)st.st_size) {
+                [target appendNotice:[NSString stringWithFormat:@"Cannot read %@.", [path lastPathComponent]]];
+                free(buf);
+                ok = NO;
+            } else {
+                NSData *nm = ui_utf8_cstring([path lastPathComponent]);
+
+                [names addObject:nm];
+                mem[n] = buf;
+                files[n].name = (const char *)[nm bytes];
+                files[n].data = buf;
+                files[n].len = (size_t)st.st_size;
+                total += (long)st.st_size;
+                n++;
+            }
+            if (f != NULL) fclose(f);
+        }
+    }
+    if (!ok || n == 0) {
+        for (i = 0; i < n; i++) free(mem[i]);
+        return NO;
+    }
+    typed = UI_CPATH(ui_trim(caption));
+    if (emojiPack != NULL) {
+        size_t cap = strlen(typed) * 4 + 16;
+
+        sent = (char *)malloc(cap);
+        if (sent != NULL) emoji_expand_shortcodes(emojiPack, typed, sent, cap);
+    }
+    rc = kc_send_files(kc, [channelId cString], sent != NULL ? sent : typed, files, n);
+    free(sent);
+    for (i = 0; i < n; i++) free(mem[i]);
+    [lastTypingChannel release];
+    lastTypingChannel = nil;
+    if (rc == REST_E_TOO_LONG) {
+        [target appendNotice:@"The files or the text are over Discord's limits."];
+    } else if (rc == REST_E_FULL) {
+        [target appendNotice:@"Too many messages are waiting to be sent; try again in a moment."];
+    } else if (rc != 0) {
+        [target appendNotice:@"Those files cannot be sent."];
+    }
+    if (rc == 0) {
+        [target appendNotice:[NSString stringWithFormat:@"Sending %d file%s (%d KB)...", n, n == 1 ? "" : "s", (int)((total + 1023L) / 1024L)]];
+    }
+    return rc == 0;
+}
 
 - (void)channelWindow:(ChannelWindow *)cw userTypingInChannel:(NSString *)channelId { [self userTypingInChannel:channelId]; }
 

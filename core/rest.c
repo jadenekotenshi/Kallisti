@@ -140,7 +140,8 @@ int rest_pending(const RestClient *rc)
 
 /* ---------------------------------------------------------------- queueing */
 
-static long queue_job(RestClient *rc, int kind, const char *method, const char *path, const char *body)
+static long queue_job_ex(RestClient *rc, int kind, const char *method, const char *path, const char *body, size_t body_len,
+                         const char *ctype, int adopt)
 {
     int i;
     RestJob *j = NULL;
@@ -157,12 +158,20 @@ static long queue_job(RestClient *rc, int kind, const char *method, const char *
     }
     memset(j, 0, sizeof(*j));
     if (body != NULL) {
-        j->body_len = strlen(body);
-        j->body = (char *)malloc(j->body_len + 1);
-        if (j->body == NULL) {
-            return REST_E_FULL;
+        j->body_len = body_len;
+        if (adopt) {                                     /* a malloc'd buffer with room for the NUL: no second copy */
+            j->body = (char *)body;
+        } else {
+            j->body = (char *)malloc(j->body_len + 1);
+            if (j->body == NULL) {
+                return REST_E_FULL;
+            }
+            memcpy(j->body, body, j->body_len);
         }
-        memcpy(j->body, body, j->body_len + 1);
+        j->body[j->body_len] = '\0';
+    }
+    if (ctype != NULL) {
+        copy_str(j->ctype, sizeof(j->ctype), ctype);
     }
     j->used = 1;
     j->id = ++rc->next_id;
@@ -174,6 +183,11 @@ static long queue_job(RestClient *rc, int kind, const char *method, const char *
     sprintf(j->route, "%s ", method);
     strncat(j->route, path, q < sizeof(j->route) - 8 ? q : sizeof(j->route) - 8);
     return j->id;
+}
+
+static long queue_job(RestClient *rc, int kind, const char *method, const char *path, const char *body)
+{
+    return queue_job_ex(rc, kind, method, path, body, body != NULL ? strlen(body) : 0, NULL, 0);
 }
 
 long rest_get_me(RestClient *rc)
@@ -259,6 +273,156 @@ long rest_post_message(RestClient *rc, const char *channel_id, const char *conte
     }
     id = queue_job(rc, REST_POST_MESSAGE, "POST", path, w.buf);
     jw_free(&w);
+    return id;
+}
+
+/* Does the first n bytes of hay hold needle? (memmem is not everywhere) */
+static int contains(const unsigned char *hay, size_t n, const char *needle)
+{
+    size_t m = strlen(needle), i;
+
+    if (m == 0 || n < m) {
+        return 0;
+    }
+    for (i = 0; i + m <= n; i++) {
+        const unsigned char *p = (const unsigned char *)memchr(hay + i, needle[0], n - i - m + 1);
+
+        if (p == NULL) {
+            break;
+        }
+        i = (size_t)(p - hay);
+        if (memcmp(p, needle, m) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The name as it goes in the Content-Disposition header: the last path component, no quotes, backslashes or control
+ * characters. */
+static void clean_filename(const char *name, char *out, size_t cap)
+{
+    const char *base = name, *p;
+    size_t n = 0;
+
+    for (p = name; *p != '\0'; p++) {
+        if (*p == '/' || *p == '\\') {
+            base = p + 1;
+        }
+    }
+    for (p = base; *p != '\0' && n + 1 < cap; p++) {
+        unsigned char ch = (unsigned char)*p;
+
+        out[n++] = (ch < 0x20 || ch == 0x7f || ch == '"') ? '_' : (char)ch;
+    }
+    out[n] = '\0';
+    if (n == 0) {
+        strcpy(out, "file");
+    }
+}
+
+long rest_post_message_files(RestClient *rc, const char *channel_id, const char *content, const RestFile *files, int nfiles)
+{
+    char path[128], boundary[64], ctype[96], names[REST_MAX_FILES][104], head[320];
+    JWriter w;
+    unsigned char *body;
+    size_t total = 0, cap, len = 0, chars = 0, n;
+    const unsigned char *p;
+    int i, tries;
+    long id;
+
+    if (!valid_id(channel_id) || content == NULL || files == NULL || nfiles < 1 || nfiles > REST_MAX_FILES) {
+        return REST_E_BAD;
+    }
+    n = strlen(content);
+    if (!ws_utf8_valid((const unsigned char *)content, n)) {
+        return REST_E_BAD;
+    }
+    for (p = (const unsigned char *)content; *p != '\0'; p++) {
+        if ((*p & 0xC0) != 0x80) {
+            chars++;
+        }
+    }
+    if (chars > REST_MAX_CONTENT) {
+        return REST_E_TOO_LONG;
+    }
+    for (i = 0; i < nfiles; i++) {
+        if (files[i].name == NULL || (files[i].data == NULL && files[i].len > 0) ||
+            !ws_utf8_valid((const unsigned char *)files[i].name, strlen(files[i].name))) {
+            return REST_E_BAD;
+        }
+        if (files[i].len > (size_t)REST_MAX_UPLOAD || total + files[i].len > (size_t)REST_MAX_UPLOAD) {
+            return REST_E_TOO_LONG;
+        }
+        total += files[i].len;
+        clean_filename(files[i].name, names[i], sizeof(names[i]));
+    }
+    /* a boundary that occurs in none of the files (nearly always the first try) */
+    for (tries = 0;; tries++) {
+        int clash = 0;
+
+        sprintf(boundary, "KallistiFormBoundary%ld%d", rc->next_id + 1, tries);
+        for (i = 0; i < nfiles && !clash; i++) {
+            clash = contains(files[i].data, files[i].len, boundary);
+        }
+        if (!clash) {
+            break;
+        }
+        if (tries > 50) {
+            return REST_E_BAD;
+        }
+    }
+    jw_init(&w);
+    jw_begin_obj(&w);
+    jw_key(&w, "content");
+    jw_str(&w, content);
+    jw_key(&w, "attachments");
+    jw_begin_arr(&w);
+    for (i = 0; i < nfiles; i++) {
+        jw_begin_obj(&w);
+        jw_key(&w, "id");
+        jw_int(&w, i);
+        jw_key(&w, "filename");
+        jw_str(&w, names[i]);
+        jw_end_obj(&w);
+    }
+    jw_end_arr(&w);
+    jw_end_obj(&w);
+    if (w.failed) {
+        jw_free(&w);
+        return REST_E_FULL;
+    }
+    cap = total + strlen(w.buf) + (size_t)nfiles * 400 + 400;
+    body = (unsigned char *)malloc(cap);
+    if (body == NULL) {
+        jw_free(&w);
+        return REST_E_FULL;
+    }
+    sprintf(head, "--%s\r\nContent-Disposition: form-data; name=\"payload_json\"\r\nContent-Type: application/json\r\n\r\n", boundary);
+    memcpy(body + len, head, strlen(head));
+    len += strlen(head);
+    memcpy(body + len, w.buf, strlen(w.buf));
+    len += strlen(w.buf);
+    jw_free(&w);
+    for (i = 0; i < nfiles; i++) {
+        sprintf(head, "\r\n--%s\r\nContent-Disposition: form-data; name=\"files[%d]\"; filename=\"%s\"\r\nContent-Type: application/octet-stream\r\n\r\n",
+                boundary, i, names[i]);
+        memcpy(body + len, head, strlen(head));
+        len += strlen(head);
+        if (files[i].len > 0) {
+            memcpy(body + len, files[i].data, files[i].len);
+        }
+        len += files[i].len;
+    }
+    sprintf(head, "\r\n--%s--\r\n", boundary);
+    memcpy(body + len, head, strlen(head));
+    len += strlen(head);
+    sprintf(ctype, "multipart/form-data; boundary=%s", boundary);
+    sprintf(path, "/channels/%s/messages", channel_id);
+    id = queue_job_ex(rc, REST_POST_MESSAGE, "POST", path, (const char *)body, len, ctype, 1);
+    if (id <= 0) {
+        free(body);                                      /* (the queue only takes the buffer when it takes the call) */
+    }
     return id;
 }
 
@@ -498,7 +662,7 @@ static int build_request(const RestClient *rc, const RestJob *j, HttpReq *req)
         http_req_header(req, "Authorization", auth) != 0 ||
         http_req_header(req, "User-Agent", rc->user_agent) != 0 ||
         http_req_header(req, "Accept", "application/json") != 0 ||
-        (j->body != NULL && http_req_header(req, "Content-Type", "application/json") != 0) ||
+        (j->body != NULL && http_req_header(req, "Content-Type", j->ctype[0] != '\0' ? j->ctype : "application/json") != 0) ||
         http_req_end(req, j->body, j->body_len) != 0) {
         http_req_free(req);
         memset(auth, 0, sizeof(auth));

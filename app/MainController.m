@@ -298,6 +298,11 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
     [owner mainController:self userTypingInChannel:channelId];
 }
 
+- (BOOL)channelPane:(ChannelPane *)p didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)channelId
+{
+    return [owner mainController:self didDropFiles:paths caption:caption forChannel:channelId];
+}
+
 - (void)channelPane:(ChannelPane *)p didSubmitText:(NSString *)text forChannel:(NSString *)channelId
 {
     [owner mainController:self didSubmitText:text forChannel:channelId];
@@ -316,6 +321,9 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 - (NSString *)statusString { return [statusLabel stringValue]; }
 - (void)typeText:(NSString *)text { [pane typeText:text]; }
 - (void)setDraft:(NSString *)text { [pane setDraft:text]; }
+- (void)attachFiles:(NSArray *)paths { [pane acceptDroppedFiles:paths]; }
+- (id)inputView { return [pane inputView]; }
+- (id)logView { return [pane logView]; }
 - (void)updateTypingAt:(KMs)now { [pane updateTypingAt:now]; }
 - (NSString *)typingString { return [pane typingString]; }
 - (NSString *)draft { return [pane draft]; }

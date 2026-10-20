@@ -1171,6 +1171,17 @@ int kc_fetch_file(KClient *kc, const char *url, unsigned long tag)
     return kc_fetch_image_ex(kc, url, 0, 0, 1, 1, tag, KC_FETCH_FILE);
 }
 
+int kc_send_files(KClient *kc, const char *channel_id, const char *text, const RestFile *files, int nfiles)
+{
+    long id = rest_post_message_files(&kc->rest, channel_id, text, files, nfiles);
+
+    if (id <= 0) {
+        return (int)id;
+    }
+    pend_add(kc, id, REST_POST_MESSAGE, channel_id);
+    return 0;
+}
+
 int kc_typing(KClient *kc, const char *channel_id)
 {
     long id = rest_typing(&kc->rest, channel_id);
