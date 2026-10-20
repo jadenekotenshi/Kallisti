@@ -115,6 +115,11 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
     }
     s = (const char *)[raw bytes];
     len = strlen(s);
+    {
+        static int drawn;
+
+        if (drawn++ < 80 && [self isHighlighted]) SSTrace("list cell draws a selected row: \"%s\"", s);
+    }
     while (x < right && emoji_next(pack, s, len, scan, &us, &ue, key)) {
         NSImage *img = [source unicodeEmojiImageForKey:S(key)];
         char *seg;
@@ -356,7 +361,9 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
             }
         }
     }
+    SSTrace("list: reloadData (%d rows)", (int)[rows count]);
     [listTable reloadData];
+    SSTrace("list: reloaded");
     if (current) {
         for (i = 0; i < [rows count]; i++) {
             ListRow *r = (ListRow *)[rows objectAtIndex:i];
@@ -400,11 +407,17 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
 
 - (void)selectChannelId:(NSString *)cid
 {
+    SSTrace("select %s: pane", [cid cString]);
     [pane setChannel:cid];
+    SSTrace("select: title");
     [self updateTitle];
+    SSTrace("select: list");
     [self reloadList];
+    SSTrace("select: owner");
     [owner mainController:self didSelectChannel:cid];
+    SSTrace("select: focus");
     [pane focusInput];
+    SSTrace("select: done");
 }
 
 - (void)selectChannelWithId:(NSString *)channelId { [self selectChannelId:channelId]; }
