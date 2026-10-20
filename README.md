@@ -100,6 +100,12 @@ before any OPENSTEP code:
      as its text; the input is emptied. The files are uploaded as `multipart/form-data` in one request, so a slow link
      shows "Sending n files..." until Discord's reply puts the message in the log. Dragging is the part to check on real
      hardware; Attach File... is the same path without it.
+   - Server names are bold in the list, so they stand out from the channels under them.
+   - Discord > Save Message Log... (Cmd-S) writes the messages held for the channel in front (a channel window if one is
+     key, else the main window's) to a text file: a title, date separators, `[HH:MM] author: text`, embeds, reactions,
+     and the address of each attachment. It is UTF-8, with emoji written as `:name:` when the emoji pack is loaded, so it
+     reads sensibly even in an editor that knows no Unicode. Only what is in memory is saved (the latest 50 messages
+     loaded when the channel is opened, plus what has arrived since, up to 200).
    - Reacting: Discord > React to a Message... (Cmd-R) lists the latest messages; pick one and type an emoji --
      `:thumbsup:`, a custom emoji's `:name:` (one seen in the channel), a pasted `<:name:id>`, or the emoji itself -- or
      choose from the Common menu. React adds yours, Remove Mine takes it back. The bot needs the Add Reactions

@@ -163,6 +163,12 @@ Guild *model_find_guild(Model *m, const char *id);
 Channel *model_find_channel(Model *m, const char *channel_id);
 Message *model_find_message(Channel *c, const char *message_id);
 
+/* The messages of a channel as plain UTF-8 text for saving: a title, date separators, "[HH:MM] author: text" (a message's
+ * further lines indented), its embeds and reactions, and the address of each attachment. Emoji become ":name:" where the
+ * pack knows one (pack may be NULL: they stay as they are). Returns a malloc'd NUL-terminated string (the caller frees it),
+ * or NULL if out of memory. g may be NULL. */
+char *model_format_log(const Channel *c, const Guild *g, const EmojiPack *pack);
+
 /* Who is typing in the channel right now, as a sentence for a status line ("Ann is typing...", "Ann and Bob are typing...",
  * "Several people are typing..."), or "" if nobody is. Writes at most cap-1 bytes. */
 void model_typing_text(const Channel *c, KMs now_ms, char *out, size_t cap);

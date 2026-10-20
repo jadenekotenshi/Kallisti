@@ -589,6 +589,38 @@ static void test_typing(void)
     model_free(m);
 }
 
+static void test_format_log(void)
+{
+    Model *m = start();
+    Channel *c;
+    Guild *g;
+    char *log;
+
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"60\",\"channel_id\":\"201\",\"content\":\"first line\\nsecond line\",\"timestamp\":\"2026-10-19T10:00:00.000000+00:00\","
+             "\"edited_timestamp\":\"2026-10-19T10:01:00.000000+00:00\",\"author\":{\"id\":\"1\",\"username\":\"ann\"},"
+             "\"attachments\":[{\"filename\":\"cat.png\",\"url\":\"https://cdn.example/a/cat.png\",\"proxy_url\":\"https://media.example/a/cat.png?x=1\",\"width\":8,\"height\":8,\"content_type\":\"image/png\"}],"
+             "\"embeds\":[{\"type\":\"article\",\"title\":\"Cool Page\",\"description\":\"d1\\nd2\"}],"
+             "\"reactions\":[{\"count\":3,\"me\":true,\"emoji\":{\"id\":null,\"name\":\"\xf0\x9f\x91\x8d\"}},{\"count\":1,\"me\":false,\"emoji\":{\"id\":\"5\",\"name\":\"blob\"}}]}");
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"61\",\"channel_id\":\"201\",\"content\":\"hi\",\"timestamp\":\"2026-10-21T10:00:00.000000+00:00\",\"author\":{\"id\":\"2\",\"username\":\"bob\"}}");
+    c = model_find_channel(m, "201");
+    g = model_find_guild(m, c->guild_id);
+    log = model_format_log(c, g, NULL);
+    CHECK(log != NULL);
+    if (log != NULL) {
+        CHECK(strncmp(log, "#", 1) == 0 && strstr(log, " - Test Guild\n") != NULL);
+        CHECK(strstr(log, "] ann: first line\n    second line [image: cat.png 8x8]") != NULL || strstr(log, "] ann: first line\n    second line\n") != NULL);
+        CHECK(strstr(log, " (edited)\n") != NULL);
+        CHECK(strstr(log, "\n    | Cool Page\n    | d1\n    | d2\n") != NULL);
+        CHECK(strstr(log, "\n    https://cdn.example/a/cat.png\n") != NULL);
+        CHECK(strstr(log, "\n    [\xf0\x9f\x91\x8d 3*] [:blob: 1]\n") != NULL);
+        CHECK(strstr(log, "] bob: hi\n") != NULL);
+        CHECK(strstr(log, "\n---- 2026-10-") != NULL && strstr(strstr(log, "---- 2026-10-") + 5, "---- 2026-10-") != NULL);   /* two days: two separators */
+        free(log);
+    }
+    CHECK(model_format_log(NULL, g, NULL) == NULL);
+    model_free(m);
+}
+
 static void test_embeds(void)
 {
     Model *m = start();
@@ -899,6 +931,7 @@ int main(void)
     test_custom_emoji();
     test_reactions();
     test_typing();
+    test_format_log();
     test_resolve_reaction();
     test_fuzz();
     TEST_DONE("model");

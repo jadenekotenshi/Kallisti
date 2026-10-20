@@ -443,6 +443,43 @@ int main(int argc, char **argv)
         [main setDraft:@""];
     }
 
+    /* the server rows of the list are bold, the rest are not */
+    {
+        NSArray *labels = [main listLabels];
+        NSTextFieldCell *cell = [[[NSTextFieldCell alloc] init] autorelease];
+        unsigned i;
+        int bold = 0, plain = 0;
+
+        for (i = 0; i < [labels count]; i++) {
+            BOOL isGuild = [[labels objectAtIndex:i] hasPrefix:@"- "] || [[labels objectAtIndex:i] hasPrefix:@"+ "];
+
+            [(id)main tableView:nil willDisplayCell:cell forTableColumn:nil row:(int)i];
+            if ([[[cell font] fontName] rangeOfString:@"Bold"].location != NSNotFound) {
+                bold++;
+                CHECK(isGuild);
+            } else {
+                plain++;
+                CHECK(!isGuild);
+            }
+        }
+        CHECK(bold >= 1 && plain >= 1);
+    }
+
+    /* the log can be saved as text */
+    {
+        NSString *path = @"/tmp/kallisti_ui_log.txt";
+        NSString *text;
+
+        remove([path cString]);
+        CHECK([app saveLogOfChannel:@"200" toPath:path]);
+        text = [NSString stringWithContentsOfFile:path];
+        CHECK(text != nil && [text rangeOfString:@"hello from the test"].location != NSNotFound && [text hasPrefix:@"#general - Test Guild\n"]);
+        CHECK([text rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound);
+        CHECK(![app saveLogOfChannel:@"200" toPath:@"/nonexistent_dir_zz/x.txt"]);
+        CHECK(![app saveLogOfChannel:@"999" toPath:path]);
+        remove([path cString]);
+    }
+
     /* files dropped on the input go with what is typed there as the caption; on the log they go alone; a folder is refused */
     {
         NSString *dir = @"/tmp/kallisti_ui_drop";

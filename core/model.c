@@ -4,6 +4,7 @@
 #include <string.h>
 #include "model.h"
 #include "ws.h"
+#include "ktime.h"
 
 /* ---------------------------------------------------------------- small helpers */
 
@@ -886,6 +887,152 @@ static void on_reaction(Model *m, const char *kind, const JNode *d)
         }
     }
     push_change(m, MC_MESSAGE_CHANGED, c->guild_id, c->id, mid);
+}
+
+/* ---------------------------------------------------------------- saving a log */
+
+typedef struct {
+    char *buf;
+    size_t len, cap;
+    int failed;
+} LogBuf;
+
+static void lb_put(LogBuf *b, const char *s, size_t n)
+{
+    if (b->failed) {
+        return;
+    }
+    if (b->len + n + 1 > b->cap) {
+        size_t cap = b->cap ? b->cap : 4096;
+        char *nb;
+
+        while (cap < b->len + n + 1) {
+            cap *= 2;
+        }
+        nb = (char *)realloc(b->buf, cap);
+        if (nb == NULL) {
+            b->failed = 1;
+            return;
+        }
+        b->buf = nb;
+        b->cap = cap;
+    }
+    memcpy(b->buf + b->len, s, n);
+    b->len += n;
+    b->buf[b->len] = '\0';
+}
+
+static void lb_puts(LogBuf *b, const char *s)
+{
+    lb_put(b, s, strlen(s));
+}
+
+/* text with emoji turned to names (when there is a pack), every line after the first indented by `indent` */
+static void lb_text(LogBuf *b, const EmojiPack *pack, const char *s, const char *indent)
+{
+    size_t n = strlen(s), i, start = 0;
+    char *conv = NULL;
+
+    if (pack != NULL && n > 0) {
+        size_t cap = n * 40 + 64;
+
+        conv = (char *)malloc(cap);
+        if (conv != NULL) {
+            emoji_to_names(pack, s, n, conv, cap);
+            s = conv;
+            n = strlen(s);
+        }
+    }
+    for (i = 0; i <= n; i++) {
+        if (i == n || s[i] == '\n') {
+            if (start > 0) {
+                lb_puts(b, indent);
+            }
+            lb_put(b, s + start, i - start);
+            if (i < n) {
+                lb_put(b, "\n", 1);
+            }
+            start = i + 1;
+        }
+    }
+    free(conv);
+}
+
+char *model_format_log(const Channel *c, const Guild *g, const EmojiPack *pack)
+{
+    LogBuf b;
+    char day[16], last[16], hm[8];
+    int i, k;
+
+    memset(&b, 0, sizeof(b));
+    last[0] = '\0';
+    if (c == NULL) {
+        return NULL;
+    }
+    lb_puts(&b, c->type == CH_DM || c->type == CH_GROUP_DM ? "@" : "#");
+    lb_puts(&b, c->name);
+    if (g != NULL && g->name[0] != '\0' && strcmp(g->id, MODEL_DM_GUILD) != 0) {
+        lb_puts(&b, " - ");
+        lb_puts(&b, g->name);
+    }
+    lb_puts(&b, "\n");
+    for (i = 0; i < c->nmsgs; i++) {
+        const Message *m = &c->msgs[i];
+
+        ktime_local(m->time, hm, day);
+        if (day[0] != '\0' && strcmp(day, last) != 0) {
+            lb_puts(&b, "\n---- ");
+            lb_puts(&b, day);
+            lb_puts(&b, " ----\n");
+            strcpy(last, day);
+        }
+        lb_puts(&b, "[");
+        lb_puts(&b, hm);
+        lb_puts(&b, "] ");
+        lb_text(&b, pack, m->author, "");
+        lb_puts(&b, ": ");
+        lb_text(&b, pack, m->text, "    ");
+        if (m->edited) {
+            lb_puts(&b, " (edited)");
+        }
+        lb_puts(&b, "\n");
+        if (m->embeds != NULL && m->embeds[0] != '\0') {
+            lb_puts(&b, "    ");
+            lb_text(&b, pack, m->embeds, "    ");
+            lb_puts(&b, "\n");
+        }
+        for (k = 0; k < m->natt; k++) {
+            const char *u = m->att[k].dl_url[0] != '\0' ? m->att[k].dl_url : m->att[k].url;
+
+            lb_puts(&b, "    ");
+            lb_puts(&b, u);
+            lb_puts(&b, "\n");
+        }
+        if (m->nreact > 0) {
+            lb_puts(&b, "    ");
+            for (k = 0; k < m->nreact; k++) {
+                const Reaction *r = &m->react[k];
+                char num[24];
+
+                lb_puts(&b, k > 0 ? " [" : "[");
+                if (r->id[0] != '\0') {
+                    lb_puts(&b, ":");
+                    lb_puts(&b, r->name);
+                    lb_puts(&b, ":");
+                } else {
+                    lb_text(&b, pack, r->name, "");
+                }
+                sprintf(num, " %d%s]", r->count, r->me ? "*" : "");
+                lb_puts(&b, num);
+            }
+            lb_puts(&b, "\n");
+        }
+    }
+    if (b.failed) {
+        free(b.buf);
+        return NULL;
+    }
+    return b.buf;
 }
 
 /* ---------------------------------------------------------------- who is typing */

@@ -98,6 +98,7 @@ static KMs app_now_ms(void)
 - (void)closeImageWindows;
 - (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target;
 - (void)attachFile:(id)sender;
+- (void)saveLog:(id)sender;
 @end
 
 @implementation AppController
@@ -182,6 +183,7 @@ static KMs app_now_ms(void)
     [self addItem:@"Attachments in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
     [self addItem:@"React to a Message..." action:@selector(showReact:) key:@"r" target:self toMenu:m];
     [self addItem:@"Attach File..." action:@selector(attachFile:) key:@"u" target:self toMenu:m];
+    [self addItem:@"Save Message Log..." action:@selector(saveLog:) key:@"s" target:self toMenu:m];
     [self addItem:@"Show Images Inline (Experimental)" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
     inlineItem = [m itemWithTitle:@"Show Images Inline (Experimental)"];
     [self addItem:@"Show Emoji as Pictures" action:@selector(toggleEmoji:) key:@"" target:self toMenu:m];
@@ -588,6 +590,58 @@ static KMs app_now_ms(void)
 - (BOOL)channelWindow:(ChannelWindow *)cw didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)channelId
 {
     return [self sendFiles:paths caption:caption toChannel:channelId notify:cw];
+}
+
+/* Discord > Save Message Log...: the messages the channel shows, as a UTF-8 text file. The channel is that of the
+ * channel window in front, else the one in the main window. */
+- (void)saveLog:(id)sender
+{
+    NSString *cid = [mainController currentChannel];
+    Channel *c;
+    NSString *base;
+    NSSavePanel *sp;
+    unsigned i;
+
+    for (i = 0; i < [channelWindows count]; i++) {
+        if ([[channelWindows objectAtIndex:i] isKeyWindow]) cid = [[channelWindows objectAtIndex:i] channelId];
+    }
+    c = (kc && cid) ? model_find_channel(kc_model(kc), [cid cString]) : NULL;
+    if (c == NULL) {
+        NSRunAlertPanel(@"No channel", @"Choose a channel first.", @"OK", nil, nil);
+        return;
+    }
+    base = S(c->name);
+    sp = [NSSavePanel savePanel];
+    if ([sp runModalForDirectory:nil file:[base stringByAppendingString:@".txt"]] == NSOKButton) {
+        [self saveLogOfChannel:cid toPath:[sp filename]];
+    }
+}
+
+- (BOOL)saveLogOfChannel:(NSString *)cid toPath:(NSString *)path
+{
+    Channel *c = (kc && cid) ? model_find_channel(kc_model(kc), [cid cString]) : NULL;
+    Guild *g = c ? model_find_guild(kc_model(kc), c->guild_id) : NULL;
+    char *text;
+    FILE *f;
+    BOOL good;
+
+    if (c == NULL) return NO;
+    text = model_format_log(c, g, emojiPack);
+    if (text == NULL) {
+        [mainController appendNotice:@"Out of memory; the log was not saved."];
+        return NO;
+    }
+    f = fopen([path cString], "wb");
+    good = f != NULL && fwrite(text, 1, strlen(text), f) == strlen(text);
+    if (f != NULL && fclose(f) != 0) good = NO;
+    free(text);
+    if (good) {
+        [mainController setStatus:[NSString stringWithFormat:@"Saved %d messages to %@", c->nmsgs, [path lastPathComponent]]];
+    } else {
+        if (f != NULL) remove([path cString]);
+        [mainController appendNotice:[NSString stringWithFormat:@"Could not write %@.", path]];
+    }
+    return good;
 }
 
 /* Discord > Attach File...: pick files and send them to the channel shown in the main window, with what is typed there. */

@@ -66,6 +66,8 @@
  * custom emoji seen in the channel, or a pasted <:name:id>. Returns whether it was sent. */
 - (BOOL)reactToMessage:(NSString *)messageId withText:(NSString *)text remove:(BOOL)remove;
 - (void)openImageItem:(ImageItem *)item;
+/* Writes the messages held for a channel to a UTF-8 text file (Save Message Log...). Returns whether it worked. */
+- (BOOL)saveLogOfChannel:(NSString *)channelId toPath:(NSString *)path;
 /* Sends files with a caption to a channel (what a drop does); problems become notices to `target`. */
 - (BOOL)sendFiles:(NSArray *)paths caption:(NSString *)caption toChannel:(NSString *)channelId notify:(id)target;
 - (NSArray *)imageWindows;

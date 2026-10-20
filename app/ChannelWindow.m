@@ -52,6 +52,7 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 - (NSString *)messageString { return [pane messageString]; }
 - (void)typeText:(NSString *)text { [pane typeText:text]; }
 - (void)updateTypingAt:(KMs)now { [pane updateTypingAt:now]; }
+- (BOOL)isKeyWindow { return [window isKeyWindow]; }
 - (void)appendNotice:(NSString *)text { [pane appendNotice:text]; }
 - (void)setImageSource:(id)source showInline:(BOOL)showInline { [pane setImageSource:source showInline:showInline]; }
 - (void)reloadMessages { [pane reload]; }

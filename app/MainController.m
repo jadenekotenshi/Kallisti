@@ -97,6 +97,7 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
     listTable = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, LIST_WIDTH, 100)];
     [listTable addTableColumn:col];
     [listTable setDataSource:(id)self];
+    [listTable setDelegate:(id)self];
     [listTable setAllowsMultipleSelection:NO];
     [listTable setTarget:self];
     [listTable setAction:@selector(listClicked:)];
@@ -179,6 +180,17 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 - (id)tableView:(NSTableView *)tv objectValueForTableColumn:(NSTableColumn *)col row:(int)row
 {
     return ((ListRow *)[rows objectAtIndex:row])->label;
+}
+
+/* Server names in bold, so they stand apart from the channels (and from each other's channels) in a long list. Cells are
+ * reused, so every row sets its font. */
+- (void)tableView:(NSTableView *)tv willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)col row:(int)row
+{
+    BOOL isGuild = row >= 0 && row < (int)[rows count] && ((ListRow *)[rows objectAtIndex:row])->kind == ROW_GUILD;
+
+    if ([cell respondsToSelector:@selector(setFont:)]) {
+        [cell setFont:isGuild ? [NSFont boldSystemFontOfSize:12.0] : [NSFont systemFontOfSize:12.0]];
+    }
 }
 
 - (void)reloadList

@@ -24,6 +24,7 @@
 - (NSString *)messageString;
 - (void)typeText:(NSString *)text;
 - (void)updateTypingAt:(KMs)now;
+- (BOOL)isKeyWindow;
 @end
 
 @interface NSObject (ChannelWindowOwner)

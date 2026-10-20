@@ -401,6 +401,34 @@ static void test_resolve(void)
     CHECK(model_resolve_reaction(NULL, pack, "x", out, sizeof(out)) == -1);
 }
 
+static void test_log_names(void)
+{
+    Channel c;
+    Message msg;
+    Reaction r;
+    char *log;
+
+    memset(&c, 0, sizeof(c));
+    memset(&msg, 0, sizeof(msg));
+    memset(&r, 0, sizeof(r));
+    strcpy(c.name, "room");
+    strcpy(msg.author, "Ann \xf0\x9f\x98\x80");
+    strcpy(msg.time, "2026-10-19T10:00:00.000000+00:00");
+    msg.text = (char *)"hello \xf0\x9f\x91\x8d there";
+    strcpy(r.name, "\xf0\x9f\x91\x8d");
+    r.count = 2;
+    msg.react = &r;
+    msg.nreact = 1;
+    c.msgs = &msg;
+    c.nmsgs = 1;
+    log = model_format_log(&c, NULL, pack);
+    CHECK(log != NULL && strstr(log, "\xf0\x9f") == NULL && strstr(log, "hello :") != NULL && strstr(log, "Ann :") != NULL);
+    free(log);
+    log = model_format_log(&c, NULL, NULL);
+    CHECK(log != NULL && strstr(log, "hello \xf0\x9f\x91\x8d there") != NULL && strstr(log, "[\xf0\x9f\x91\x8d 2]") != NULL);
+    free(log);
+}
+
 int main(void)
 {
     pack = emoji_pack_open("app/emoji.pack");
@@ -414,6 +442,7 @@ int main(void)
     test_names();
     test_every_key();
     test_resolve();
+    test_log_names();
     test_fuzz();
     emoji_pack_close(pack);
     TEST_DONE("emoji");
