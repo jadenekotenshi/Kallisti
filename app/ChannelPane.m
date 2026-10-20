@@ -28,7 +28,8 @@ static NSColor *author_color(const char *name)
 @interface ChannelPane (Private)
 - (void)appendString:(NSString *)s color:(NSColor *)color font:(NSFont *)font;
 - (void)appendMessage:(const Message *)m;
-- (void)appendRich:(const char *)text customs:(const Emoji *)customs count:(int)ncustoms prefix:(NSString *)prefix color:(NSColor *)color;
+- (void)appendRich:(const char *)text customs:(const Emoji *)customs count:(int)ncustoms prefix:(NSString *)prefix color:(NSColor *)color
+              font:(NSFont *)font;
 - (void)inputSubmitted:(id)sender;
 @end
 
@@ -106,16 +107,16 @@ static NSColor *author_color(const char *name)
 /* Text with emoji drawn as pictures: Unicode emoji (found in the text itself) and custom emoji (at the given positions),
  * each only where its picture is on hand; everything else is text. */
 - (void)appendRich:(const char *)text customs:(const Emoji *)customs count:(int)ncustoms prefix:(NSString *)prefix
-             color:(NSColor *)color
+             color:(NSColor *)color font:(NSFont *)font
 {
     EmojiPack *pack = imageSource != nil ? [imageSource emojiPack] : NULL;
     size_t len = strlen(text), at = 0, scan = 0, us = 0, ue = 0;
     int ci = 0, have_u = 0;
     char key[EMOJI_KEY_MAX];
 
-    if (prefix) [self appendString:prefix color:color font:normalFont];
+    if (prefix) [self appendString:prefix color:color font:font];
     if (pack == NULL && (customs == NULL || ncustoms == 0)) {
-        [self appendString:S(text) color:color font:normalFont];
+        [self appendString:S(text) color:color font:font];
         return;
     }
     for (;;) {
@@ -155,14 +156,14 @@ static NSColor *author_color(const char *name)
             if (seg == NULL) return;
             memcpy(seg, text + at, from - at);
             seg[from - at] = '\0';
-            [self appendString:S(seg) color:color font:normalFont];
+            [self appendString:S(seg) color:color font:font];
             free(seg);
         }
         [[messageText textStorage] appendAttributedString:ui_image_attachment(img)];
         at = to;
         if (scan < to) scan = to;
     }
-    [self appendString:S(text + at) color:color font:normalFont];
+    [self appendString:S(text + at) color:color font:font];
 }
 
 - (void)appendMessage:(const Message *)m
@@ -175,9 +176,9 @@ static NSColor *author_color(const char *name)
         strcpy(lastDay, day);
     }
     [self appendString:[NSString stringWithFormat:@"[%s] ", hm] color:[NSColor darkGrayColor] font:normalFont];
-    [self appendString:S(m->author) color:author_color(m->author) font:boldFont];
+    [self appendRich:m->author customs:NULL count:0 prefix:nil color:author_color(m->author) font:boldFont];
     [self appendString:@": " color:[NSColor blackColor] font:normalFont];
-    [self appendRich:m->text customs:(inlineImages && imageSource != nil) ? m->emoji : NULL count:m->nemoji prefix:nil color:[NSColor blackColor]];
+    [self appendRich:m->text customs:(inlineImages && imageSource != nil) ? m->emoji : NULL count:m->nemoji prefix:nil color:[NSColor blackColor] font:normalFont];
     if (m->edited) [self appendString:@" (edited)" color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];
     if (m->embeds != NULL && m->embeds[0] != '\0') {          /* link previews and other embeds, one grey line each */
@@ -187,7 +188,7 @@ static NSColor *author_color(const char *name)
         for (li = 0; li < [lines count]; li++) {
             NSData *u8 = ui_utf8_cstring([lines objectAtIndex:li]);
 
-            [self appendRich:(const char *)[u8 bytes] customs:NULL count:0 prefix:@"    " color:[NSColor darkGrayColor]];
+            [self appendRich:(const char *)[u8 bytes] customs:NULL count:0 prefix:@"    " color:[NSColor darkGrayColor] font:normalFont];
             [self appendString:@"\n" color:[NSColor darkGrayColor] font:normalFont];
         }
     }

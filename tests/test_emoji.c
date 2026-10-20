@@ -224,6 +224,124 @@ static void test_every_key(void)
     CHECK(failures == 0);
 }
 
+static int expands_to(const char *in, const char *want)
+{
+    char out[400];
+    size_t n = emoji_expand_shortcodes(pack, in, out, sizeof(out));
+
+    if (strcmp(out, want) != 0 || n != strlen(want)) {
+        printf("  expand \"%s\": got \"%s\", wanted \"%s\"\n", in, out, want);
+        return 0;
+    }
+    return 1;
+}
+
+static int names_to(const char *in, const char *want)
+{
+    char out[400];
+    size_t n = emoji_to_names(pack, in, strlen(in), out, sizeof(out));
+
+    if (strcmp(out, want) != 0 || n != strlen(want)) {
+        printf("  names \"%s\": got \"%s\", wanted \"%s\"\n", in, out, want);
+        return 0;
+    }
+    return 1;
+}
+
+static void test_names(void)
+{
+    size_t ul;
+    const char *u;
+    char name[60];
+    int i, bad = 0;
+
+    CHECK(emoji_pack_name_count(pack) >= 2000);
+    u = emoji_pack_lookup(pack, "smile", 5, &ul);
+    CHECK(u != NULL && ul == 4 && memcmp(u, "\xF0\x9F\x98\x84", 4) == 0);
+    u = emoji_pack_lookup(pack, "thumbsup", 8, &ul);
+    CHECK(u != NULL && ul == 4 && memcmp(u, "\xF0\x9F\x91\x8D", 4) == 0);
+    u = emoji_pack_lookup(pack, "+1", 2, &ul);
+    CHECK(u != NULL && ul == 4 && memcmp(u, "\xF0\x9F\x91\x8D", 4) == 0);
+    u = emoji_pack_lookup(pack, "heart", 5, &ul);
+    CHECK(u != NULL && ul == 6 && memcmp(u, "\xE2\x9D\xA4\xEF\xB8\x8F", 6) == 0);            /* with its variation selector */
+    u = emoji_pack_lookup(pack, "flag_us", 7, &ul);
+    CHECK(u != NULL && ul == 8 && memcmp(u, "\xF0\x9F\x87\xBA\xF0\x9F\x87\xB8", 8) == 0);
+    CHECK(emoji_pack_lookup(pack, "nope", 4, &ul) == NULL && emoji_pack_lookup(pack, "smil", 4, &ul) == NULL &&
+          emoji_pack_lookup(pack, "smiles", 6, &ul) == NULL && emoji_pack_lookup(pack, "", 0, &ul) == NULL);
+    CHECK(emoji_pack_name_for_key(pack, "1f600", name, sizeof(name)) && strcmp(name, "grinning") == 0);
+    CHECK(emoji_pack_name_for_key(pack, "1f44d", name, sizeof(name)) && strcmp(name, "thumbsup") == 0);        /* a name, not "+1" */
+    CHECK(!emoji_pack_name_for_key(pack, "1f44d-1f3fd", name, sizeof(name)) && !emoji_pack_name_for_key(pack, "zz", name, sizeof(name)));
+    CHECK(!emoji_pack_name_for_key(pack, "1f600", name, 3));                                                    /* too small a buffer */
+
+    /* typed shortcodes become emoji */
+    CHECK(expands_to(":smile:", "\xF0\x9F\x98\x84"));
+    CHECK(expands_to("a :heart: b", "a \xE2\x9D\xA4\xEF\xB8\x8F b"));
+    CHECK(expands_to(":+1: :thumbsup: :SMILE:", "\xF0\x9F\x91\x8D \xF0\x9F\x91\x8D \xF0\x9F\x98\x84"));             /* any case */
+    CHECK(expands_to(":smile::smile:", "\xF0\x9F\x98\x84\xF0\x9F\x98\x84"));
+    CHECK(expands_to("(:smile:)", "(\xF0\x9F\x98\x84)"));
+    CHECK(expands_to("::smile::", ":\xF0\x9F\x98\x84:"));
+    CHECK(expands_to(":flag_us:", "\xF0\x9F\x87\xBA\xF0\x9F\x87\xB8"));
+    CHECK(expands_to(":unknown_name: :smile", ":unknown_name: :smile"));
+    CHECK(expands_to(":: :: ::: :", ":: :: ::: :"));
+    CHECK(expands_to("12:smile: x:smile: <:smile:123> <a:smile:456>", "12:smile: x:smile: <:smile:123> <a:smile:456>"));   /* not after a letter, digit or <  */
+    CHECK(expands_to("`:smile:` :smile:", "`:smile:` \xF0\x9F\x98\x84"));                                                  /* not in code */
+    CHECK(expands_to("```\n:smile:\n``` :smile:", "```\n:smile:\n``` \xF0\x9F\x98\x84"));
+    CHECK(expands_to("`a` `b :smile:` :smile:", "`a` `b :smile:` \xF0\x9F\x98\x84"));
+    CHECK(expands_to("no colons", "no colons") && expands_to("", ""));
+    CHECK(expands_to("10:30:45", "10:30:45"));
+    CHECK(expands_to("http://x.com:8080/a:b", "http://x.com:8080/a:b"));
+    {
+        char small[8];
+        size_t n = emoji_expand_shortcodes(pack, "ab :smile: cd", small, sizeof(small));
+
+        CHECK(n < sizeof(small) && strlen(small) == n);                                                         /* never overruns */
+        CHECK(emoji_expand_shortcodes(pack, "x", small, 0) == 0);
+    }
+
+    /* shown emoji become names in places that cannot draw them */
+    CHECK(names_to("hi \xF0\x9F\x98\x80 there", "hi :grinning: there"));
+    CHECK(names_to("\xE2\x9D\xA4\xEF\xB8\x8F", ":heart:"));
+    CHECK(names_to("\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD", ":thumbsup::skin-tone-3:"));
+    CHECK(names_to("\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBB \xF0\x9F\x91\x8D\xF0\x9F\x8F\xBF", ":thumbsup::skin-tone-1: :thumbsup::skin-tone-5:"));
+    CHECK(names_to("\xF0\x9F\x87\xBA\xF0\x9F\x87\xB8", ":us:") || names_to("\xF0\x9F\x87\xBA\xF0\x9F\x87\xB8", ":flag_us:"));
+    CHECK(names_to("no emoji here", "no emoji here") && names_to("", "") && names_to("1\xEF\xB8\x8F\xE2\x83\xA3", ":one:"));
+    CHECK(names_to("\xF0\x9F\x98\x80\xF0\x9F\x98\x80", ":grinning::grinning:"));
+    {
+        char small[8];
+        size_t n = emoji_to_names(pack, "\xF0\x9F\x98\x80\xF0\x9F\x98\x80", 8, small, sizeof(small));
+
+        CHECK(n < sizeof(small) && strlen(small) == n);
+    }
+
+    /* every name expands to an emoji the pack has a picture for, and every primary name maps back */
+    for (i = 0; i < emoji_pack_name_count(pack); i++) {
+        (void)i;
+    }
+    {
+        static const char *probe[] = { "grinning", "smile", "joy", "heart", "fire", "tada", "thinking", "wave", "pray", "rocket",
+                                       "eyes", "100", "ok_hand", "clap", "muscle", "sunglasses", "skull", "poop", "star", "zap" };
+        size_t k;
+
+        for (k = 0; k < sizeof(probe) / sizeof(probe[0]); k++) {
+            char in[60], out[100], key[EMOJI_KEY_MAX], back[60];
+            size_t a, b;
+
+            sprintf(in, ":%s:", probe[k]);
+            emoji_expand_shortcodes(pack, in, out, sizeof(out));
+            if (!(strcmp(out, in) != 0 && emoji_next(pack, out, strlen(out), 0, &a, &b, key) && a == 0 && b == strlen(out) &&
+                  emoji_pack_has(pack, key))) {
+                printf("  name %s does not lead to a picture\n", probe[k]);
+                bad++;
+            }
+            if (!emoji_pack_name_for_key(pack, key, back, sizeof(back))) {
+                printf("  name %s: its emoji has no primary name\n", probe[k]);
+                bad++;
+            }
+        }
+    }
+    CHECK(bad == 0);
+}
+
 static unsigned long rs = 41;
 static unsigned rnd(void)
 {
@@ -250,6 +368,13 @@ static void test_fuzz(void)
             n += strlen(bit);
         }
         len = n;
+        {
+            char tmp[3000];
+
+            buf[n] = '\0';
+            emoji_to_names(pack, buf, len, tmp, sizeof(tmp));
+            emoji_expand_shortcodes(pack, buf, tmp, 40);
+        }
         while (emoji_next(pack, buf, len, pos, &a, &b, key)) {
             if (!(a >= pos && b > a && b <= len && key[0] != '\0' && emoji_pack_has(pack, key))) {
                 CHECK(0);
@@ -271,6 +396,7 @@ int main(void)
     test_pack();
     test_matching();
     test_scanning();
+    test_names();
     test_every_key();
     test_fuzz();
     emoji_pack_close(pack);

@@ -1,5 +1,6 @@
 #import "Compat.h"
 #include <stdarg.h>
+#include "emoji.h"
 
 /* Small control factories shared by the hand-built panels.  All return autoreleased objects. */
 NSTextField *ui_label(NSString *text, NSRect frame);
@@ -12,6 +13,9 @@ NSString    *ui_trim(NSString *s);          /* OpenStep has no NSString trimming
 /* Incoming Discord text are usually UTF-8, though not guaranteed by the protocol.  NSString +stringWithCString: would read them as NeXTSTEP text,
  * so decode by hand (invalid bytes fall back to Latin-1) and encode with NUL termination. */
 NSString *ui_string_from_utf8(const char *bytes);
+/* With an emoji pack set, ui_string_from_utf8() shows each Unicode emoji as its ":shortcode:" (the fonts have no
+ * glyph for it) instead of a question mark; NULL turns that off. */
+void      ui_set_emoji_pack(EmojiPack *pack);
 NSData   *ui_utf8_cstring(NSString *s);              /* bytes of s in UTF-8 plus a trailing NUL */
 #define UI_CPATH(s) ((const char *)[ui_utf8_cstring(s) bytes])
 

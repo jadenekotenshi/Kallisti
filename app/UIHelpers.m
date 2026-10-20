@@ -80,7 +80,44 @@ NSString *ui_trim(NSString *s)
     return [s substringWithRange:NSMakeRange(a, b - a)];
 }
 
+static EmojiPack *g_emoji_pack;
+
+void ui_set_emoji_pack(EmojiPack *pack)
+{
+    g_emoji_pack = pack;
+}
+
+static NSString *ui_string_from_utf8_plain(const char *s);
+
 NSString *ui_string_from_utf8(const char *s)
+{
+    const unsigned char *u;
+    size_t n = strlen(s);
+
+    if (g_emoji_pack != NULL) {                          /* emoji that cannot be drawn here become :names: */
+        for (u = (const unsigned char *)s; *u != '\0'; u++) {
+            if (*u >= 0x80) {                                /* (a keycap's U+20E3 is non-ASCII too) */
+                break;
+            }
+        }
+        if (*u != '\0') {
+            size_t cap = n * 20 + 64, got;
+            char *buf = (char *)malloc(cap);
+            NSString *r;
+
+            if (buf != NULL) {
+                got = emoji_to_names(g_emoji_pack, s, n, buf, cap);
+                (void)got;
+                r = ui_string_from_utf8_plain(buf);
+                free(buf);
+                return r;
+            }
+        }
+    }
+    return ui_string_from_utf8_plain(s);
+}
+
+static NSString *ui_string_from_utf8_plain(const char *s)
 {
     size_t n = strlen(s), i = 0, o = 0;
     unichar *out = (unichar *)malloc((n + 1) * sizeof(unichar));

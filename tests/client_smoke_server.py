@@ -209,6 +209,11 @@ async def rest_conn(reader, writer):
                     if content == 'uemoji':
                         state['next_id'] += 1
                         await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'hi \U0001F600 \u2764\ufe0f \U0001F44D\U0001F3FD bye', author='7', name='someone'))
+                    if content == 'emojiauthor':
+                        state['next_id'] += 1
+                        await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'from a fancy name', author='9', name='\U0001F600 Bob'))
+                    if content == 'newchan':
+                        await broadcast('CHANNEL_CREATE', {'id': '230', 'guild_id': '100', 'name': '\U0001F3AE-games', 'type': 0, 'position': 9})
                     if content == 'emoji':
                         state['next_id'] += 1
                         await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'cool <:blob:123> and <a:party:456> yes', author='7', name='someone'))

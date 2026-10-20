@@ -14,6 +14,13 @@ struct EmojiPack {
     unsigned char *index;                /* the index, as in the file */
     size_t index_len;
     unsigned long *entry;                /* offset of each entry within `index` */
+    unsigned char *names;                /* the names block, as in the file */
+    size_t names_len;
+    int nnames;
+    unsigned long *nentry;               /* offset of each name entry within `names` */
+    int nprimary;                        /* the names to show for an emoji, sorted by that emoji's key: */
+    int *primary;                        /*   indices into nentry */
+    char *keys;                          /*   and their keys, EMOJI_KEY_MAX bytes each, in the same order */
 };
 
 static unsigned long be32(const unsigned char *p)
@@ -21,10 +28,14 @@ static unsigned long be32(const unsigned char *p)
     return ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) | ((unsigned long)p[2] << 8) | (unsigned long)p[3];
 }
 
+static size_t make_key(const long *cps, int n, int keep_fe0f, char *key);
+static long decode(const unsigned char *s, size_t n, size_t i, size_t *adv);
+static int load_names(EmojiPack *p, unsigned long names_off, size_t names_len);
+
 EmojiPack *emoji_pack_open(const char *path)
 {
     EmojiPack *p;
-    unsigned char hdr[12];
+    unsigned char hdr[20];
     int i;
     unsigned long at = 0;
 
@@ -33,7 +44,7 @@ EmojiPack *emoji_pack_open(const char *path)
         return NULL;
     }
     p->f = fopen(path, "rb");
-    if (p->f == NULL || fread(hdr, 1, 12, p->f) != 12 || memcmp(hdr, "KEMJ", 4) != 0 || hdr[4] != 1) {
+    if (p->f == NULL || fread(hdr, 1, 20, p->f) != 20 || memcmp(hdr, "KEMJ", 4) != 0 || hdr[4] != 2) {
         emoji_pack_close(p);
         return NULL;
     }
@@ -58,7 +69,7 @@ EmojiPack *emoji_pack_open(const char *path)
         }
         at += 1 + p->index[at] + 6;
     }
-    if (at != p->index_len) {
+    if (at != p->index_len || load_names(p, be32(hdr + 12), (size_t)be32(hdr + 16)) != 0) {
         emoji_pack_close(p);
         return NULL;
     }
@@ -75,6 +86,10 @@ void emoji_pack_close(EmojiPack *p)
     }
     free(p->index);
     free(p->entry);
+    free(p->names);
+    free(p->nentry);
+    free(p->primary);
+    free(p->keys);
     free(p);
 }
 
@@ -348,4 +363,301 @@ int emoji_next(const EmojiPack *p, const char *text, size_t len, size_t from, si
         i += adv;
     }
     return 0;
+}
+
+/* ---------------------------------------------------------------- shortcode names */
+
+/* the key of the emoji in u[0..n), derived as the pack's keys are (FE0F dropped unless there is a ZWJ) */
+static size_t key_of_utf8(const unsigned char *u, size_t n, char *key)
+{
+    long cps[MAX_SEQ];
+    int nc = 0;
+    size_t i = 0, adv;
+
+    while (i < n && nc < MAX_SEQ) {
+        long cp = decode(u, n, i, &adv);
+
+        if (cp < 0) {
+            break;
+        }
+        cps[nc++] = cp;
+        i += adv;
+    }
+    return make_key(cps, nc, 0, key);
+}
+
+static int load_names(EmojiPack *p, unsigned long names_off, size_t names_len)
+{
+    size_t at = 2;
+    int n, np = 0, k;
+    int *order = NULL;
+    char *tmpkeys = NULL;
+    int j = 0, a, b, rc = -1;
+
+    if (names_len < 2 || names_len > 4000000UL) {
+        return -1;
+    }
+    p->names = (unsigned char *)malloc(names_len);
+    if (p->names == NULL || fseek(p->f, (long)names_off, SEEK_SET) != 0 || fread(p->names, 1, names_len, p->f) != names_len) {
+        return -1;
+    }
+    p->names_len = names_len;
+    n = (p->names[0] << 8) | p->names[1];
+    p->nnames = n;
+    p->nentry = (unsigned long *)malloc((size_t)(n > 0 ? n : 1) * sizeof(unsigned long));
+    if (p->nentry == NULL) {
+        return -1;
+    }
+    for (k = 0; k < n; k++) {                            /* walk the entries, checking each fits */
+        size_t nl, ul;
+
+        p->nentry[k] = at;
+        if (at + 1 > names_len) return -1;
+        nl = p->names[at];
+        if (nl == 0 || at + 1 + nl + 1 > names_len) return -1;
+        ul = p->names[at + 1 + nl];
+        if (ul == 0 || at + 1 + nl + 1 + ul + 1 > names_len) return -1;
+        if (p->names[at + 1 + nl + 1 + ul]) np++;
+        at += 1 + nl + 1 + ul + 1;
+    }
+    if (at != names_len) {
+        return -1;
+    }
+    /* the names to show for each emoji, findable by key: gather (key, entry) pairs and sort by key */
+    p->primary = (int *)malloc((size_t)(np > 0 ? np : 1) * sizeof(int));
+    p->keys = (char *)malloc((size_t)(np > 0 ? np : 1) * EMOJI_KEY_MAX);
+    order = (int *)malloc((size_t)(np > 0 ? np : 1) * sizeof(int));
+    tmpkeys = (char *)malloc((size_t)(np > 0 ? np : 1) * EMOJI_KEY_MAX);
+    if (p->primary == NULL || p->keys == NULL || order == NULL || tmpkeys == NULL) {
+        goto done;
+    }
+    for (k = 0; k < n; k++) {
+        const unsigned char *e = p->names + p->nentry[k];
+        size_t nl = e[0], ul = e[1 + nl];
+
+        if (e[1 + nl + 1 + ul]) {
+            key_of_utf8(e + 1 + nl + 1, ul, tmpkeys + (size_t)j * EMOJI_KEY_MAX);
+            order[j] = k;
+            j++;
+        }
+    }
+    for (a = 1; a < np; a++) {                           /* insertion sort by key: about 2000 entries, once at start-up */
+        int o = order[a];
+        char kbuf[EMOJI_KEY_MAX];
+
+        memcpy(kbuf, tmpkeys + (size_t)a * EMOJI_KEY_MAX, EMOJI_KEY_MAX);
+        b = a - 1;
+        while (b >= 0 && strcmp(tmpkeys + (size_t)b * EMOJI_KEY_MAX, kbuf) > 0) {
+            memcpy(tmpkeys + (size_t)(b + 1) * EMOJI_KEY_MAX, tmpkeys + (size_t)b * EMOJI_KEY_MAX, EMOJI_KEY_MAX);
+            order[b + 1] = order[b];
+            b--;
+        }
+        memcpy(tmpkeys + (size_t)(b + 1) * EMOJI_KEY_MAX, kbuf, EMOJI_KEY_MAX);
+        order[b + 1] = o;
+    }
+    memcpy(p->keys, tmpkeys, (size_t)np * EMOJI_KEY_MAX);
+    memcpy(p->primary, order, (size_t)np * sizeof(int));
+    p->nprimary = np;
+    rc = 0;
+done:
+    free(order);
+    free(tmpkeys);
+    return rc;
+}
+
+int emoji_pack_name_count(const EmojiPack *p) { return p->nnames; }
+
+const char *emoji_pack_lookup(const EmojiPack *p, const char *name, size_t len, size_t *ulen)
+{
+    int lo = 0, hi = p->nnames - 1;
+
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2, c;
+        const unsigned char *e = p->names + p->nentry[mid];
+        size_t nl = e[0], m = nl < len ? nl : len;
+
+        c = memcmp(e + 1, name, m);
+        if (c == 0) {
+            c = nl < len ? -1 : (nl > len ? 1 : 0);
+        }
+        if (c == 0) {
+            *ulen = e[1 + nl];
+            return (const char *)e + 1 + nl + 1;
+        }
+        if (c < 0) {
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return NULL;
+}
+
+int emoji_pack_name_for_key(const EmojiPack *p, const char *key, char *out, size_t cap)
+{
+    int lo = 0, hi = p->nprimary - 1;
+
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2, c = strcmp(p->keys + (size_t)mid * EMOJI_KEY_MAX, key);
+
+        if (c == 0) {
+            const unsigned char *e = p->names + p->nentry[p->primary[mid]];
+            size_t nl = e[0];
+
+            if (nl + 1 > cap) {
+                return 0;
+            }
+            memcpy(out, e + 1, nl);
+            out[nl] = '\0';
+            return 1;
+        }
+        if (c < 0) {
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return 0;
+}
+
+static int name_char(int c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '+' || c == '-';
+}
+
+static int alnum(int c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+}
+
+size_t emoji_expand_shortcodes(const EmojiPack *p, const char *in, char *out, size_t cap)
+{
+    size_t i = 0, o = 0, n = strlen(in);
+    int ticks = 0;                                       /* inside `code` (1) or a ``` block (3) */
+
+    if (cap == 0) {
+        return 0;
+    }
+    while (i < n) {
+        char c = in[i];
+
+        if (c == '`') {
+            size_t run = 1;
+
+            while (i + run < n && in[i + run] == '`') {
+                run++;
+            }
+            if (ticks == 0) {
+                ticks = run >= 3 ? 3 : 1;
+            } else if ((ticks == 3 && run >= 3) || (ticks == 1 && run < 3)) {
+                ticks = 0;
+            }
+            while (run > 0 && o + 1 < cap) {
+                out[o++] = '`';
+                run--;
+                i++;
+            }
+            if (run > 0) {
+                break;
+            }
+            continue;
+        }
+        if (c == ':' && ticks == 0 && !(i > 0 && (alnum((unsigned char)in[i - 1]) || in[i - 1] == '<'))) {
+            size_t j = i + 1, k;
+            char low[48];
+            const char *u;
+            size_t ul;
+
+            while (j < n && j - i - 1 <= 40 && name_char((unsigned char)in[j])) {
+                j++;
+            }
+            if (j < n && in[j] == ':' && j > i + 1 && j - i - 1 <= 40) {
+                for (k = 0; k < j - i - 1; k++) {
+                    char ch = in[i + 1 + k];
+
+                    low[k] = (char)((ch >= 'A' && ch <= 'Z') ? ch + 32 : ch);
+                }
+                u = emoji_pack_lookup(p, low, j - i - 1, &ul);
+                if (u != NULL && o + ul < cap) {
+                    memcpy(out + o, u, ul);
+                    o += ul;
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        if (o + 1 >= cap) {
+            break;
+        }
+        out[o++] = c;
+        i++;
+    }
+    out[o] = '\0';
+    return o;
+}
+
+static void put(char *out, size_t cap, size_t *o, const char *s, size_t n)
+{
+    if (*o + n < cap) {
+        memcpy(out + *o, s, n);
+        *o += n;
+    }
+}
+
+size_t emoji_to_names(const EmojiPack *p, const char *utf8, size_t len, char *out, size_t cap)
+{
+    size_t at = 0, s0, e0, o = 0;
+    char key[EMOJI_KEY_MAX], name[48];
+
+    if (cap == 0) {
+        return 0;
+    }
+    while (at < len && emoji_next(p, utf8, len, at, &s0, &e0, key)) {
+        char base[EMOJI_KEY_MAX], tone = 0;
+        const char *found = NULL;
+
+        put(out, cap, &o, utf8 + at, s0 - at);
+        if (emoji_pack_name_for_key(p, key, name, sizeof(name))) {
+            found = name;
+        } else {
+            /* a skin-tone variant: the plain emoji's name plus ":skin-tone-N:" */
+            size_t kl = strlen(key), b = 0, i = 0;
+
+            while (i < kl) {
+                size_t part_end = i;
+
+                while (part_end < kl && key[part_end] != '-') part_end++;
+                if (part_end - i == 5 && strncmp(key + i, "1f3f", 4) == 0 && key[i + 4] >= 'b' && key[i + 4] <= 'f') {
+                    tone = (char)('1' + (key[i + 4] - 'b'));
+                } else {
+                    if (b > 0) base[b++] = '-';
+                    memcpy(base + b, key + i, part_end - i);
+                    b += part_end - i;
+                }
+                i = part_end + 1;
+            }
+            base[b] = '\0';
+            if (tone != 0 && emoji_pack_name_for_key(p, base, name, sizeof(name))) {
+                found = name;
+            } else {
+                tone = 0;
+            }
+        }
+        if (found != NULL) {
+            put(out, cap, &o, ":", 1);
+            put(out, cap, &o, found, strlen(found));
+            put(out, cap, &o, ":", 1);
+            if (tone != 0) {
+                put(out, cap, &o, ":skin-tone-", 11);
+                put(out, cap, &o, &tone, 1);
+                put(out, cap, &o, ":", 1);
+            }
+        } else {
+            put(out, cap, &o, utf8 + s0, e0 - s0);
+        }
+        at = e0;
+    }
+    put(out, cap, &o, utf8 + at, len - at);
+    out[o] = '\0';
+    return o;
 }

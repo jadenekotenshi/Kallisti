@@ -91,9 +91,14 @@ before any OPENSTEP code:
      has; `core/emoji.c` finds the emoji in a message -- skin tones, flags, keycaps, joined families, tag flags -- by
      Twemoji's own file-naming rules and the pictures stand in for them, with no network involved. A bare (c), (r),
      (tm), digit or plain arrow stays text (fonts have them); `FE0F` makes them emoji. Discord > *Show Emoji as
-     Pictures* switches it off (they then show as `?`). Emoji in names, server names and the window list are still `?`.
-     `tools/gen_emoji.py` rebuilds the pack from jsDelivr (needs Pillow). The pictures are CC-BY 4.0, see
-     `EMOJI-LICENSE.txt`. Typing `:smile:` is not converted: Discord's own client does that; you can paste the emoji.
+     Pictures* switches it off. Where no picture can go (the server and channel list, window titles, the status line,
+     alerts, or anywhere with pictures off) an emoji is spelt as its shortcode, `:grinning:`, `:thumbsup::skin-tone-3:`,
+     instead of a question mark; in the message log a name with an emoji in it gets the picture too. Typing a shortcode
+     (`:smile:`, `:thumbsup:`, `:+1:`, `:flag_us:`, any of 2,170 names from GitHub's gemoji list, in any case) sends the
+     emoji, as Discord's own client does -- but not inside `code` or a code block, not as part of a custom emoji tag, and
+     not right after a letter or digit (`12:30:smile:`). The pack carries the names, the pictures and the licence
+     (`tools/gen_emoji.py` rebuilds it from jsDelivr and gemoji; it needs Pillow). The pictures are CC-BY 4.0, see
+     `EMOJI-LICENSE.txt`; the names are from gemoji (MIT).
    - Custom emoji: `<:blob:123>` shows as `:blob:`; with *Show Images Inline* the emoji's own picture (Discord's 32-pixel
      PNG, shown at 16) takes its place in the line, each fetched once. Animated emoji show their first frame.
    - Animated GIFs: opening a GIF from the picture list fetches the GIF itself (resized to fit 400x300 -- no `format`

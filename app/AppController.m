@@ -120,6 +120,7 @@ static KMs app_now_ms(void)
 - (void)dealloc
 {
     [self endSession];
+    ui_set_emoji_pack(NULL);
     emoji_pack_close(emojiPack);
     trust_free(&trust);
     memset(&prefs, 0, sizeof(prefs));
@@ -520,7 +521,19 @@ static KMs app_now_ms(void)
         [target appendNotice:@"Not connected; the message was not sent."];
         return;
     }
-    rc = kc_send_message(kc, [channelId cString], UI_CPATH(text));
+    {
+        const char *typed = UI_CPATH(text);
+        char *sent = NULL;
+
+        if (emojiPack != NULL) {                                 /* :smile: becomes the emoji, as Discord's own client does */
+            size_t cap = strlen(typed) * 4 + 16;
+
+            sent = (char *)malloc(cap);
+            if (sent != NULL) emoji_expand_shortcodes(emojiPack, typed, sent, cap);
+        }
+        rc = kc_send_message(kc, [channelId cString], sent != NULL ? sent : typed);
+        free(sent);
+    }
     if (rc == REST_E_TOO_LONG) {
         [target appendNotice:@"That message is longer than Discord's limit of 2000 characters."];
     } else if (rc == REST_E_FULL) {
@@ -628,8 +641,10 @@ static KMs app_now_ms(void)
     EmojiPack *p = emoji_pack_open([path cString]);
 
     if (p == NULL) return NO;
+    ui_set_emoji_pack(NULL);
     emoji_pack_close(emojiPack);
     emojiPack = p;
+    ui_set_emoji_pack(emojiPack);                        /* emoji in names and titles become :shortcodes: */
     [emojiImages removeAllObjects];
     return YES;
 }

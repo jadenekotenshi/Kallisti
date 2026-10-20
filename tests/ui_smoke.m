@@ -86,6 +86,28 @@ static BOOL hasUnicodeEmojiMessage(AppController *app)
     return [t rangeOfString:@"hi "].location != NSNotFound && [t rangeOfString:@" bye"].location != NSNotFound;
 }
 
+static BOOL hasShortcodeEcho(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@" here"].location != NSNotFound &&
+           [[[app mainController] messageString] rangeOfString:@"sent "].location != NSNotFound;
+}
+
+static BOOL hasFancyAuthor(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"Bob: from a fancy name"].location != NSNotFound;
+}
+
+static BOOL hasEmojiChannel(AppController *app)
+{
+    NSArray *labels = [[app mainController] listLabels];
+    unsigned i;
+
+    for (i = 0; i < [labels count]; i++) {
+        if ([[labels objectAtIndex:i] rangeOfString:@":video_game:-games"].location != NSNotFound) return YES;
+    }
+    return NO;
+}
+
 static BOOL hasGifMessage(AppController *app)
 {
     return [[[app mainController] messageString] rangeOfString:@"[image: dance.gif 25x15]"].location != NSNotFound;
@@ -411,9 +433,29 @@ int main(int argc, char **argv)
         t = lineWith([main messageString], @" bye");
         r = [t rangeOfString:@"hi "];
         t = [t substringFromIndex:r.location];
-        CHECK([t hasPrefix:@"hi ? "] && [t hasSuffix:@" bye"] && [t rangeOfString:marker].location == NSNotFound);
+        CHECK([t isEqualToString:@"hi :grinning: :heart: :thumbsup::skin-tone-3: bye"]);                  /* names, not question marks */
+        CHECK([t rangeOfString:marker].location == NSNotFound);
         CHECK(![app emojiPicturesEnabled]);
         [app setEmojiPictures:YES];
+
+        /* typed shortcodes become emoji on the way out: the echo comes back as a picture */
+        [main typeText:@"sent :thumbsup: and :nosuchname: here"];
+        CHECK(waitFor(hasShortcodeEcho, app, 10.0));
+        t = lineWith([main messageString], @" here");
+        CHECK([t rangeOfString:marker].location != NSNotFound && [t rangeOfString:@":nosuchname:"].location != NSNotFound &&
+              [t rangeOfString:@":thumbsup:"].location == NSNotFound);
+
+        /* an emoji in a name: drawn in the log, spelt out where no picture can go */
+        [main typeText:@"emojiauthor"];
+        CHECK(waitFor(hasFancyAuthor, app, 10.0));
+        t = lineWith([main messageString], @"Bob: from a fancy name");
+        CHECK([t rangeOfString:marker].location != NSNotFound && [t rangeOfString:@"?"].location == NSNotFound);
+        [app setEmojiPictures:NO];
+        t = lineWith([main messageString], @"Bob: from a fancy name");
+        CHECK([t rangeOfString:@":grinning: Bob: from a fancy name"].location != NSNotFound);
+        [app setEmojiPictures:YES];
+        [main typeText:@"newchan"];
+        CHECK(waitFor(hasEmojiChannel, app, 10.0));
     }
 
     /* a DM from a stranger lands in Direct Messages, first in the list, as a mention */

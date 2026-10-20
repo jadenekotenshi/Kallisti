@@ -33,4 +33,22 @@ unsigned char *emoji_pack_tiff(EmojiPack *p, const char *key, size_t *len);
  * the arrows are emoji only when followed by U+FE0F (or, for digits, in a keycap). */
 int emoji_next(const EmojiPack *p, const char *utf8, size_t len, size_t from, size_t *start, size_t *end, char key[EMOJI_KEY_MAX]);
 
+/* ---- shortcode names (":smile:", ":thumbsup:", ":flag_us:") ----------------------------------------------------- */
+
+/* The emoji (as UTF-8, variation selectors kept) a shortcode name stands for, or NULL. `name` is without colons and in
+ * lower case; its length is len. The result is not NUL-terminated: *ulen says how long it is. */
+const char *emoji_pack_lookup(const EmojiPack *p, const char *name, size_t len, size_t *ulen);
+/* The shortcode to show for the emoji with this key (without colons), copied to out; 0 if it has none. */
+int emoji_pack_name_for_key(const EmojiPack *p, const char *key, char *out, size_t cap);
+int emoji_pack_name_count(const EmojiPack *p);
+
+/* Typed text to sent text: every ":name:" that is a known shortcode becomes its emoji. Not inside `code` or ``` blocks,
+ * not as part of a custom emoji tag "<:name:123>", not right after a letter or digit ("12:30:smile:"). Writes at most
+ * cap-1 bytes and a NUL; returns the length (shorter than cap unless the output was cut off). */
+size_t emoji_expand_shortcodes(const EmojiPack *p, const char *in, char *out, size_t cap);
+
+/* Shown text to plain text: every emoji becomes ":name:" (a skin tone as ":name::skin-tone-N:"); an emoji with no
+ * name is copied unchanged. Same output rules as above. */
+size_t emoji_to_names(const EmojiPack *p, const char *utf8, size_t len, char *out, size_t cap);
+
 #endif
