@@ -4,6 +4,37 @@
 #include "../core/netconn.h"
 #include "test.h"
 
+#ifdef OPENSTEP
+/* OPENSTEP 4.2's libc has getenv() but no putenv(): put a "NAME=value" string into the environment by hand. */
+extern char **environ;
+
+static int my_putenv(char *entry)
+{
+    size_t n = strcspn(entry, "="), count = 0, i;
+    char **env, **fresh;
+
+    for (env = environ; env != NULL && *env != NULL; env++) {
+        if (strncmp(*env, entry, n) == 0 && (*env)[n] == '=') {
+            *env = entry;
+            return 0;
+        }
+        count++;
+    }
+    fresh = (char **)malloc((count + 2) * sizeof(char *));
+    if (fresh == NULL) {
+        return -1;
+    }
+    for (i = 0; i < count; i++) {
+        fresh[i] = environ[i];
+    }
+    fresh[count] = entry;
+    fresh[count + 1] = NULL;
+    environ = fresh;
+    return 0;
+}
+#define putenv my_putenv
+#endif
+
 static int parse(const char *spec, NetProxy *p, char *err)
 {
     return net_proxy_parse(p, spec, err, 200);
