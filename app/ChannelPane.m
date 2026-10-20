@@ -483,6 +483,7 @@ static NSColor *author_color(const char *name)
     [messageText setString:@""];
     lastDay[0] = '\0';
     if (c == NULL) return;
+    SSTrace("reload channel %s: %d messages", [channel cString], c->nmsgs);
     if (inlineImages && imageSource != nil) {
         /* ask for the newest pictures first: the queue is short, and those are the ones being looked at */
         for (i = c->nmsgs - 1; i >= 0; i--) {
@@ -497,7 +498,14 @@ static NSColor *author_color(const char *name)
             }
         }
     }
-    for (i = 0; i < c->nmsgs; i++) [self appendMessage:&c->msgs[i]];
+    for (i = 0; i < c->nmsgs; i++) {
+        const Message *tm = &c->msgs[i];
+
+        SSTrace("  message %s: %d attachments, %d reactions, %d custom emoji, %d chars", tm->id, tm->natt, tm->nreact, tm->nemoji,
+                (int)strlen(tm->text));
+        [self appendMessage:&c->msgs[i]];
+    }
+    SSTrace("reload done");
     [messageText scrollRangeToVisible:NSMakeRange([[messageText textStorage] length], 0)];
 }
 

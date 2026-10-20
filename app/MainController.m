@@ -118,6 +118,9 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
     while (x < right && emoji_next(pack, s, len, scan, &us, &ue, key)) {
         NSImage *img = [source unicodeEmojiImageForKey:S(key)];
         char *seg;
+        static int traced;
+
+        if (traced++ < 60) SSTrace("list row emoji: bytes %d-%d key %s, picture %s, row \"%s\"", (int)us, (int)ue, key, img ? "yes" : "no", s);
 
         scan = ue;
         if (img == nil) continue;                                      /* no picture: it stays in the text */
@@ -371,6 +374,7 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
 
     if (row < 0 || row >= (int)[rows count]) return;
     r = (ListRow *)[rows objectAtIndex:row];
+    SSTrace("list click: row %d kind %d \"%s\"", row, r->kind, [r->label cString]);
     if (r->kind == ROW_GUILD) {
         if ([collapsed containsObject:r->ident]) [collapsed removeObject:r->ident];
         else [collapsed addObject:r->ident];
