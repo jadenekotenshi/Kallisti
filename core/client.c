@@ -31,6 +31,20 @@ static void copy_str(char *dst, size_t cap, const char *src)
     dst[n] = '\0';
 }
 
+/* The proxy to use for a connection to `host`: the configured one, else (if allowed) the environment's. */
+static const NetProxy *proxy_for(KClient *kc, const char *host, NetProxy *tmp)
+{
+    char err[160];
+
+    if (kc->proxy_set) {
+        return &kc->proxy;
+    }
+    if (kc->proxy_env && net_proxy_from_env(tmp, host, err, sizeof(err)) == 1) {
+        return tmp;
+    }
+    return NULL;
+}
+
 static void emit(KClient *kc, int type, int state, const char *text)
 {
     KEvent *e;
@@ -86,6 +100,7 @@ void kc_init(KClient *kc, const char *token, int is_bot)
     kc->rest_port = 443;
     kc->rest_tls = 1;
     kc->check_dates = 1;
+    kc->proxy_env = 1;
     net_init(&kc->rconn);
     net_init(&kc->gconn);
     net_init(&kc->fconn);
@@ -144,6 +159,8 @@ void kc_free(KClient *kc)
     rest_free(&kc->rest);
     model_free(&kc->model);
     memset(kc->token, 0, sizeof(kc->token));
+    memset(&kc->proxy, 0, sizeof(kc->proxy));
+    memset(kc->proxy_pass, 0, sizeof(kc->proxy_pass));
 }
 
 void kc_start(KClient *kc, KMs now)
@@ -155,6 +172,36 @@ void kc_start(KClient *kc, KMs now)
     copy_str(kc->rest.host, sizeof(kc->rest.host), kc->rest_host);
     kc->rest.port = kc->rest_port;
     kc->rest.tls = kc->rest_tls;
+    {
+        char perr[200];
+        NetProxy envp;
+
+        if (net_proxy_parse(&kc->proxy, kc->proxy_spec, perr, sizeof(perr)) != 0) {
+            char m[300];
+
+            sprintf(m, "The proxy setting is not usable: %.200s", perr);
+            set_state(kc, KC_FATAL, m);
+            return;
+        }
+        kc->proxy_set = kc->proxy.type != NETPROXY_NONE;
+        if (kc->proxy_set && kc->proxy_user[0] != '\0') {      /* a login given separately wins over one in the address */
+            strncpy(kc->proxy.user, kc->proxy_user, sizeof(kc->proxy.user) - 1);
+            strncpy(kc->proxy.pass, kc->proxy_pass, sizeof(kc->proxy.pass) - 1);
+        }
+        if (kc->proxy_set) {
+            sprintf(kc->proxy_label, "%.60s:%d", kc->proxy.host, kc->proxy.port);
+        }
+        if (!kc->proxy_set && kc->proxy_env && net_proxy_from_env(&envp, kc->rest_host, perr, sizeof(perr)) == 1) {
+            sprintf(kc->proxy_label, "%.60s:%d", envp.host, envp.port);
+        }
+        if (!kc->proxy_set && kc->proxy_env && net_proxy_from_env(&envp, kc->rest_host, perr, sizeof(perr)) < 0) {
+            char m[300];
+
+            sprintf(m, "The proxy named in the environment is not usable: %.200s", perr);
+            set_state(kc, KC_FATAL, m);
+            return;
+        }
+    }
     if ((kc->rest_tls || strncmp(kc->gateway_url, "wss", 3) == 0) && kc->trust == NULL) {
         set_state(kc, KC_FATAL, "No certificate trust store is available");
         return;
@@ -308,10 +355,11 @@ static void rest_finish(KClient *kc, KMs now, const char *failure)
 static int open_rest(KClient *kc, KMs now)
 {
     der_time utc;
+    NetProxy tmp;
 
     net_utc_now(&utc);
-    return net_open(&kc->rconn, kc->rest_host, kc->rest_port, kc->rest_tls, kc->trust,
-                    kc->check_dates ? &utc : NULL, now);
+    return net_open_via(&kc->rconn, kc->rest_host, kc->rest_port, kc->rest_tls, kc->trust,
+                        kc->check_dates ? &utc : NULL, now, proxy_for(kc, kc->rest_host, &tmp));
 }
 
 static void rest_pump(KClient *kc, KMs now)
@@ -422,7 +470,11 @@ static void gw_events(KClient *kc)
         switch (ev.type) {
         case GW_EV_READY:
             model_gateway_event(&kc->model, &ev);
-            sprintf(msg, "Connected as %.100s", kc->user_name);
+            if (kc->proxy_label[0] != '\0') {
+                sprintf(msg, "Connected as %.100s (through the proxy %.80s)", kc->user_name, kc->proxy_label);
+            } else {
+                sprintf(msg, "Connected as %.100s", kc->user_name);
+            }
             set_state(kc, KC_ONLINE, msg);
             break;
         case GW_EV_RESUMED:
@@ -454,6 +506,7 @@ static void gateway_connect(KClient *kc, KMs now)
 {
     HttpUrl u;
     der_time utc;
+    NetProxy tmp;
 
     if (http_parse_url(kc->gurl, &u) != 0) {
         gw_connection_failed(&kc->gw, now);
@@ -461,7 +514,8 @@ static void gateway_connect(KClient *kc, KMs now)
         return;
     }
     net_utc_now(&utc);
-    if (net_open(&kc->gconn, u.host, u.port, u.tls, kc->trust, kc->check_dates ? &utc : NULL, now) != 0) {
+    if (net_open_via(&kc->gconn, u.host, u.port, u.tls, kc->trust, kc->check_dates ? &utc : NULL, now,
+                     proxy_for(kc, u.host, &tmp)) != 0) {
         net_close(&kc->gconn);
         kc->gphase = G_NONE;
         gw_connection_failed(&kc->gw, now);
@@ -700,8 +754,9 @@ int kc_next_image(KClient *kc, KImage *out)
     return 1;
 }
 
+/* Finishes the download in progress with a result. `keep`: the connection may be used again for the next picture. */
 static void fetch_result(KClient *kc, int ok, const char *error, unsigned char *tiff, size_t tiff_len,
-                         unsigned long w, unsigned long h)
+                         unsigned long w, unsigned long h, int keep)
 {
     KImage *r = &kc->imgs[kc->nimgs];
 
@@ -724,30 +779,43 @@ static void fetch_result(KClient *kc, int ok, const char *error, unsigned char *
         http_resp_free(&kc->fresp);
     }
     kc->fphase = 0;
-    net_close(&kc->fconn);
+    if (keep && kc->fconn.state == NET_OPEN) {
+        kc->fidle_since = kc->fnow;                      /* stays open for the next picture */
+    } else {
+        net_close(&kc->fconn);
+    }
 }
 
-static void fetch_failed(KClient *kc, const char *why)
+/* `keep`: the server answered properly (just not with a picture), so its connection is still good */
+static void fetch_failed_keep(KClient *kc, const char *why, int keep)
 {
     char msg[200];
 
     sprintf(msg, "Could not load the picture: %.150s", why);
-    fetch_result(kc, 0, msg, NULL, 0, 0, 0);
+    fetch_result(kc, 0, msg, NULL, 0, 0, 0, keep);
 }
 
-/* Opens kc->furl; returns 0, or fails the fetch and returns -1. */
+static void fetch_failed(KClient *kc, const char *why)
+{
+    fetch_failed_keep(kc, why, 0);
+}
+
+/* Opens a new connection for kc->furl; returns 0, or fails the fetch and returns -1. */
 static int fetch_open(KClient *kc, KMs now)
 {
     HttpUrl u;
     der_time utc;
+    NetProxy tmp;
 
+    kc->fphase = 1;
     if (http_parse_url(kc->furl, &u) != 0) {
         kc->fphase = 0;
         fetch_failed(kc, "bad address");
         return -1;
     }
     net_utc_now(&utc);
-    if (net_open(&kc->fconn, u.host, u.port, u.tls, kc->trust, kc->check_dates ? &utc : NULL, now) != 0) {
+    if (net_open_via(&kc->fconn, u.host, u.port, u.tls, kc->trust, kc->check_dates ? &utc : NULL, now,
+                     proxy_for(kc, u.host, &tmp)) != 0) {
         char m[240];
 
         sprintf(m, "%.200s", kc->fconn.err);
@@ -755,8 +823,49 @@ static int fetch_open(KClient *kc, KMs now)
         fetch_failed(kc, m);
         return -1;
     }
-    kc->fphase = 1;
+    kc->fopens++;
     return 0;
+}
+
+/* Sends the GET for kc->furl on the (open) connection and starts reading the reply. */
+static int fetch_send(KClient *kc)
+{
+    HttpUrl u;
+
+    if (http_parse_url(kc->furl, &u) != 0) {
+        fetch_failed(kc, "bad address");
+        return -1;
+    }
+    http_req_free(&kc->freq);
+    http_req_init(&kc->freq);
+    if (http_req_begin(&kc->freq, "GET", u.path, u.host, u.port, u.tls) != 0 ||
+        http_req_header(&kc->freq, "User-Agent", kc->rest.user_agent) != 0 ||
+        http_req_header(&kc->freq, "Accept", "image/png, image/jpeg") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
+        net_write(&kc->fconn, kc->freq.buf, kc->freq.len) != 0) {
+        fetch_failed(kc, "could not send the request");
+        return -1;
+    }
+    http_resp_init(&kc->fresp, (size_t)KC_IMAGE_BODY_MAX, 0);
+    kc->fgot = 0;
+    kc->fphase = 2;
+    return 0;
+}
+
+/* Starts fetching kc->furl: on the connection that is already open to the same server, else on a new one. */
+static void fetch_begin(KClient *kc, KMs now)
+{
+    HttpUrl u;
+
+    if (http_parse_url(kc->furl, &u) == 0 && kc->fconn.state == NET_OPEN && kc->fconn.port == u.port &&
+        kc->fconn.use_tls == u.tls && strcmp(kc->fconn.host, u.host) == 0) {
+        kc->freused = 1;
+        kc->fwall_open = wall_ms();                      /* no connection time to speak of */
+        fetch_send(kc);
+        return;
+    }
+    kc->freused = 0;
+    net_close(&kc->fconn);
+    fetch_open(kc, now);
 }
 
 static void fetch_pump(KClient *kc, KMs now)
@@ -766,6 +875,16 @@ static void fetch_pump(KClient *kc, KMs now)
     int rc, i;
     HttpUrl u;
 
+    kc->fnow = now;
+    if (kc->fphase == 0 && kc->fconn.state != NET_IDLE) {
+        /* a connection kept for the next picture: let go of it if the server hung up or it has idled too long */
+        net_pump(&kc->fconn, now);
+        net_peek(&kc->fconn, &n);
+        net_consume(&kc->fconn, n);
+        if (kc->fconn.state != NET_OPEN || KMS_SINCE(now, kc->fidle_since) > 20000L) {
+            net_close(&kc->fconn);
+        }
+    }
     if (kc->fphase == 0 && kc->nfq > 0 && kc->nimgs < KC_IMAGE_QUEUE) {
         copy_str(kc->forig, sizeof(kc->forig), kc->fq[0].url);
         kc->fq_w_saved = kc->fq[0].w;
@@ -788,7 +907,7 @@ static void fetch_pump(KClient *kc, KMs now)
         if (kc->furl[0] == '\0') {
             fetch_failed(kc, "address too long");
         } else {
-            fetch_open(kc, now);
+            fetch_begin(kc, now);
         }
     }
     if (kc->fphase == 0) {
@@ -799,23 +918,10 @@ static void fetch_pump(KClient *kc, KMs now)
         return;
     }
     net_pump(&kc->fconn, now);
-    if (kc->fphase == 1) {
+    if (kc->fphase == 1) {                               /* connecting (and tunnelling, and TLS) */
         if (kc->fconn.state == NET_OPEN) {
-            if (http_parse_url(kc->furl, &u) != 0) {
-                fetch_failed(kc, "bad address");
-                return;
-            }
-            http_req_init(&kc->freq);
-            if (http_req_begin(&kc->freq, "GET", u.path, u.host, u.port, u.tls) != 0 ||
-                http_req_header(&kc->freq, "User-Agent", kc->rest.user_agent) != 0 ||
-                http_req_header(&kc->freq, "Accept", "image/png, image/jpeg") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
-                net_write(&kc->fconn, kc->freq.buf, kc->freq.len) != 0) {
-                fetch_failed(kc, "could not send the request");
-                return;
-            }
-            http_resp_init(&kc->fresp, (size_t)KC_IMAGE_BODY_MAX, 0);
             kc->fwall_open = wall_ms();
-            kc->fphase = 2;
+            fetch_send(kc);
         } else if (kc->fconn.state == NET_FAILED || kc->fconn.state == NET_CLOSED) {
             char m[240];
 
@@ -828,6 +934,7 @@ static void fetch_pump(KClient *kc, KMs now)
     p = net_peek(&kc->fconn, &n);
     rc = HTTP_NEED_MORE;
     if (n > 0) {
+        kc->fgot = 1;
         rc = http_resp_feed(&kc->fresp, p, n, &used);
         net_consume(&kc->fconn, used);
     }
@@ -843,11 +950,23 @@ static void fetch_pump(KClient *kc, KMs now)
     if (rc == HTTP_FAILED) {
         char m[240];
 
+        if (!kc->fgot && kc->freused) {
+            /* the server had closed the kept connection under us: once more on a fresh one */
+            http_resp_free(&kc->fresp);
+            kc->fphase = 1;
+            kc->freused = 0;
+            net_close(&kc->fconn);
+            fetch_open(kc, now);
+            return;
+        }
         sprintf(m, "%.200s", kc->fresp.err[0] != '\0' ? kc->fresp.err : "the connection was lost");
         fetch_failed(kc, m);
     } else if (rc == HTTP_DONE) {
         int status = kc->fresp.status;
+        int keep = kc->fresp.keep_alive;
 
+        net_peek(&kc->fconn, &n);
+        net_consume(&kc->fconn, n);                      /* nothing is expected beyond the reply */
         if ((status == 301 || status == 302 || status == 303 || status == 307 || status == 308) &&
             http_resp_header(&kc->fresp, "Location") != NULL) {
             char loc[512];
@@ -868,22 +987,22 @@ static void fetch_pump(KClient *kc, KMs now)
                 copy_str(kc->furl, sizeof(kc->furl), loc);
             }
             kc->fredirects++;
-            http_req_free(&kc->freq);
             http_resp_free(&kc->fresp);
-            net_close(&kc->fconn);
-            fetch_open(kc, now);
+            kc->fphase = 1;
+            if (!keep) {
+                net_close(&kc->fconn);
+            }
+            fetch_begin(kc, now);
         } else if (status != 200) {
             char m[80];
 
             sprintf(m, "the server answered HTTP %d", status);
-            fetch_failed(kc, m);
+            fetch_failed_keep(kc, m, keep);
         } else {
             unsigned char *tiff = NULL;
             size_t tl = 0;
-            unsigned long w = 0, h = 0;
+            unsigned long w = 0, h = 0, t0;
             const char *err = "ok";
-
-            unsigned long t0;
             int dec;
 
             kc->fwall_done = wall_ms();
@@ -896,16 +1015,18 @@ static void fetch_pump(KClient *kc, KMs now)
                 kc->fretried = 1;
                 kc->fflags = 0;
                 fetch_url(kc->furl, sizeof(kc->furl), kc->forig, kc->fq_w_saved, kc->fq_h_saved, kc->fmax_w, kc->fmax_h, 0);
-                http_req_free(&kc->freq);
                 http_resp_free(&kc->fresp);
-                net_close(&kc->fconn);
-                fetch_open(kc, now);
+                kc->fphase = 1;
+                if (!keep) {
+                    net_close(&kc->fconn);
+                }
+                fetch_begin(kc, now);
                 return;
             }
             if (dec == 0) {
-                fetch_result(kc, 1, "", tiff, tl, w, h);
+                fetch_result(kc, 1, "", tiff, tl, w, h, keep);
             } else {
-                fetch_failed(kc, err);
+                fetch_failed_keep(kc, err, keep);
             }
         }
     }

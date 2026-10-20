@@ -68,6 +68,13 @@ typedef struct {
     char gateway_url[320];       /* "" for Discord's own */
     const TrustStore *trust;     /* required for TLS; must outlive the client */
     int check_dates;             /* validate certificate dates against the clock */
+    char proxy_spec[256];        /* "[http://|socks5://][user:pass@]host[:port]", or "" for none (see netconn.h) */
+    char proxy_user[128];        /* a login kept apart from the address (wins over one in it) */
+    char proxy_pass[128];
+    int proxy_env;               /* with no proxy_spec, use https_proxy / all_proxy / http_proxy (default 1) */
+    NetProxy proxy;              /* the parsed setting, once started */
+    int proxy_set;
+    char proxy_label[80];        /* "host:port" of the proxy in use (configured, or from the environment), for the status line */
 
     int state;
     char user_name[80];
@@ -105,7 +112,9 @@ typedef struct {
     char furl[512];              /* the address being fetched now (after redirects) */
     char forig[512];             /* ... and the one that was asked for */
     unsigned long fmax_w, fmax_h, ftag;
-    int fflags, fretried;
+    int fflags, fretried, freused, fgot;
+    KMs fnow, fidle_since;
+    unsigned long fopens;        /* connections opened for pictures (a kept connection is not a new one) */
     unsigned long fq_w_saved, fq_h_saved;      /* the size asked for, kept for a retry in another format */
     int fredirects;
     KMs fstarted;

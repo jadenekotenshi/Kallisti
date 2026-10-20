@@ -15,9 +15,32 @@
 #include "chain.h"
 #include "tls.h"
 
+/* A proxy to reach the server through: an HTTP proxy asked to CONNECT, or a SOCKS5 proxy.  TLS (when used) runs
+ * end to end through the tunnel, so the proxy sees only the destination's name and port. */
+enum { NETPROXY_NONE = 0, NETPROXY_HTTP, NETPROXY_SOCKS5 };
+
+typedef struct {
+    int type;
+    char host[256];
+    int port;
+    char user[128];              /* optional login (HTTP Basic, or SOCKS5 user/password) */
+    char pass[128];
+} NetProxy;
+
+/* Parses "[scheme://][user[:password]@]host[:port]": scheme http (the default; port 3128) or socks5 / socks5h /
+ * socks (port 1080); percent escapes in the login are decoded. Empty text means no proxy (type NONE, returns 0).
+ * Returns 0, or -1 with a message in err. */
+int net_proxy_parse(NetProxy *p, const char *spec, char *err, size_t errcap);
+
+/* The proxy the environment names for `target_host` (https_proxy, HTTPS_PROXY, all_proxy, ALL_PROXY, http_proxy,
+ * HTTP_PROXY, in that order), unless no_proxy / NO_PROXY excludes the host. Returns 1 and fills *p, 0 for none,
+ * -1 if the variable's value is not a usable proxy (message in err). */
+int net_proxy_from_env(NetProxy *p, const char *target_host, char *err, size_t errcap);
+
 typedef enum {
     NET_IDLE = 0,
     NET_CONNECTING,          /* TCP connect in progress */
+    NET_TUNNELING,           /* connected to the proxy, asking it to open the way to the server */
     NET_HANDSHAKING,         /* TLS handshake in progress */
     NET_OPEN,                /* ready for data */
     NET_CLOSED,              /* the peer closed it cleanly (unread data may remain) */
@@ -44,6 +67,10 @@ typedef struct {
     size_t in_len, in_cap, in_off;
     char err[240];
     long bytes_in, bytes_out;
+    NetProxy proxy;
+    int tstep;                           /* where the proxy conversation is */
+    unsigned char tbuf[1200];            /* its replies so far */
+    size_t tlen;
 } NetConn;
 
 void net_init(NetConn *c);
@@ -56,6 +83,9 @@ void net_close(NetConn *c);
  * (state NET_FAILED) if the name cannot be resolved or a socket cannot be made. */
 int net_open(NetConn *c, const char *host, int port, int use_tls, const TrustStore *trust, const der_time *now,
              KMs t);
+/* The same, through `proxy` (NULL or type NONE: directly). The server's name is then resolved by the proxy. */
+int net_open_via(NetConn *c, const char *host, int port, int use_tls, const TrustStore *trust, const der_time *now,
+                 KMs t, const NetProxy *proxy);
 /* Makes whatever progress is possible without blocking. */
 void net_pump(NetConn *c, KMs t);
 

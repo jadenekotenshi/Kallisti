@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots kprefs ktime png jpeg
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots kprefs ktime png jpeg netproxy
 
 all: test
 
@@ -84,12 +84,18 @@ trust-smoke:
 	build/trust_smoke tests/http_smoke_server.py 15917 build/trustpki/chain.pem build/trustpki/leaf.key \
 	    build/trustpki/ca.pem build/trustpki/other.pem
 
+# Proxy support (HTTP CONNECT and SOCKS5, with and without a login) against proxies written in Python.
+proxy-smoke:
+	mkdir -p build
+	$(CC) -w -g $(SANFLAGS) -Icore tests/proxy_smoke.c core/*.c -o build/proxy_smoke
+	build/proxy_smoke tests/proxy_server.py python3 15950 build/proxy_smoke.log
+
 # The client engine end to end against a scripted fake Discord, plain and TLS (validated against a test CA).
 client-smoke: build/venv/bin/python
 	tests/trust_smoke_setup.sh
 	$(CC) -w -g $(SANFLAGS) -Icore tests/client_smoke.c core/*.c -o build/client_smoke
 	build/client_smoke tests/client_smoke_server.py build/venv/bin/python 15920 15930 build/trustpki/chain.pem \
-	    build/trustpki/leaf.key build/trustpki/ca.pem
+	    build/trustpki/leaf.key build/trustpki/ca.pem tests/proxy_server.py 15960 build/client_proxy.log
 
 # The whole stack against the real Discord: TLS validation with the compiled-in roots, REST, WebSocket (needs
 # network; no token needed -- it only reads the public /gateway endpoint and the gateway's HELLO).
@@ -134,6 +140,6 @@ ui-smoke: build/venv/bin/python
 	$(CC) build/ui/*.o -framework Cocoa -o build/ui_smoke
 	build/ui_smoke tests/client_smoke_server.py build/venv/bin/python 15940
 
-.PHONY: all test lint clean tls-smoke http-smoke ws-smoke gw-smoke trust-smoke discord-smoke client-smoke check-objc ui-smoke dist
+.PHONY: all test lint clean tls-smoke http-smoke ws-smoke gw-smoke trust-smoke discord-smoke client-smoke proxy-smoke check-objc ui-smoke dist
 
 .SECONDARY:

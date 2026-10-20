@@ -115,6 +115,8 @@ int main(int argc, char **argv)
         return 2;
     }
     signal(SIGPIPE, SIG_IGN);
+    putenv((char *)"http_proxy="); putenv((char *)"https_proxy="); putenv((char *)"all_proxy=");     /* the shell's proxies stay out of it */
+    putenv((char *)"HTTP_PROXY="); putenv((char *)"HTTPS_PROXY="); putenv((char *)"ALL_PROXY=");
     ssh_rng_seed_system();
     ssh_rng_add("ui smoke", 8, 256);
     server = fork();

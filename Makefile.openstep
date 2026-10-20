@@ -195,6 +195,10 @@ build/test_jpeg: tests/test_jpeg.c $(CORE_OBJS)
 	-mkdir build
 	$(CC) $(CFLAGS) -o build/test_jpeg tests/test_jpeg.c $(CORE_OBJS)
 
+build/test_netproxy: tests/test_netproxy.c $(CORE_OBJS)
+	-mkdir build
+	$(CC) $(CFLAGS) -o build/test_netproxy tests/test_netproxy.c $(CORE_OBJS)
+
 # Compiler/CPU arithmetic sanity (see tests/test_prims.c): its object goes through the same .c.o
 # rule as core/nacl.o, so it is built with exactly the flags nacl.o gets.
 tests/test_prims.o: tests/prims_ref.h core/nacl.c
@@ -203,7 +207,7 @@ build/test_prims: tests/test_prims.o $(CORE_OBJS)
 	-mkdir build
 	$(CC) $(CFLAGS) -o build/test_prims tests/test_prims.o $(CORE_OBJS)
 
-test: build/test_prims build/test_crypto build/test_bignum build/test_ecc build/test_rsa build/test_der build/test_x509 build/test_tls_wire build/test_tls_prf build/test_tls_aead build/test_tls build/test_tls_pins build/test_json build/test_http build/test_ws build/test_gateway build/test_rest build/test_model build/test_chain build/test_roots build/test_kprefs build/test_ktime build/test_png build/test_jpeg
+test: build/test_prims build/test_crypto build/test_bignum build/test_ecc build/test_rsa build/test_der build/test_x509 build/test_tls_wire build/test_tls_prf build/test_tls_aead build/test_tls build/test_tls_pins build/test_json build/test_http build/test_ws build/test_gateway build/test_rest build/test_model build/test_chain build/test_roots build/test_kprefs build/test_ktime build/test_png build/test_jpeg build/test_netproxy
 	build/test_prims
 	build/test_crypto
 	build/test_bignum
@@ -228,6 +232,7 @@ test: build/test_prims build/test_crypto build/test_bignum build/test_ecc build/
 	build/test_ktime
 	build/test_png
 	build/test_jpeg
+	build/test_netproxy
 
 # Per-primitive cost of the TLS data path (record ciphers, hashes, HMAC, X25519), for comparing before and
 # after a change on the same machine.

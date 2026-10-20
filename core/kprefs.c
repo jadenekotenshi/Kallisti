@@ -53,6 +53,12 @@ int kprefs_load(KPrefs *p, const char *path)
             p->remember = eq[0] == '1';
         } else if (strcmp(line, "bot") == 0) {
             p->is_bot = eq[0] != '0';
+        } else if (strcmp(line, "proxy") == 0) {
+            copy_value(p->proxy, sizeof(p->proxy), eq);
+        } else if (strcmp(line, "proxy_user") == 0) {
+            copy_value(p->proxy_user, sizeof(p->proxy_user), eq);
+        } else if (strcmp(line, "proxy_pass") == 0) {
+            copy_value(p->proxy_pass, sizeof(p->proxy_pass), eq);
         } else if (strcmp(line, "dates") == 0) {
             p->check_dates = eq[0] != '0';
         }
@@ -60,6 +66,7 @@ int kprefs_load(KPrefs *p, const char *path)
     fclose(f);
     if (!p->remember) {
         memset(p->token, 0, sizeof(p->token));       /* a token without the user's say-so is not used */
+        memset(p->proxy_pass, 0, sizeof(p->proxy_pass));
     }
     return 0;
 }
@@ -79,6 +86,15 @@ int kprefs_save(const KPrefs *p, const char *path)
     fprintf(f, "bot=%d\n", p->is_bot ? 1 : 0);
     fprintf(f, "dates=%d\n", p->check_dates ? 1 : 0);
     fprintf(f, "remember=%d\n", p->remember ? 1 : 0);
+    if (p->proxy[0] != '\0') {
+        fprintf(f, "proxy=%s\n", p->proxy);
+    }
+    if (p->proxy_user[0] != '\0') {
+        fprintf(f, "proxy_user=%s\n", p->proxy_user);
+    }
+    if (p->remember && p->proxy_pass[0] != '\0') {
+        fprintf(f, "proxy_pass=%s\n", p->proxy_pass);
+    }
     if (p->remember && p->token[0] != '\0') {
         fprintf(f, "token=%s\n", p->token);
     }

@@ -86,6 +86,28 @@ filtered by the bot's permissions (opening one it cannot read says so in the mes
 their first frame; user-token mode is untested (no intents are sent for it and nothing else differs). Decoding a
 large picture takes seconds on a 68040; arithmetic-coded, 12-bit, lossless and CMYK JPEGs are refused.
 
+## Proxies
+
+Every connection (REST, the gateway WebSocket and pictures) can go through a proxy, with TLS still end to end
+through the tunnel (the proxy sees only the destination's name and port; the certificate is validated as usual).
+The sign-in panel has *Proxy*, *Proxy user* and *Proxy password* fields, saved in `~/.kallisti/prefs` (mode 600;
+the password only if you tick "remember", like the token).
+
+- `http://host:3128` (or just `host:3128`): an HTTP proxy asked to `CONNECT`; `socks5://host:1080` (also `socks5h://`
+  and `socks://`): a SOCKS5 proxy, which resolves the server's name itself. A login can be written in the address
+  (`http://bob:secret@host:3128`, with `%40`-style escapes) or in the separate fields (which win). HTTP proxies get
+  Basic authentication; SOCKS5 gets user/password. SOCKS4 and proxies you reach over TLS are not supported.
+- With the field empty, Kallisti falls back to the environment: `https_proxy`, `HTTPS_PROXY`, `all_proxy`,
+  `ALL_PROXY`, `http_proxy`, `HTTP_PROXY` (in that order), minus any host matched by `no_proxy` / `NO_PROXY`
+  (`*`, names, `.domain` suffixes). (A Workspace-launched app does not inherit a shell's exports; start it from a
+  shell if you want this.)
+- A bad setting is reported at sign-in; a proxy that cannot be reached, wants a login, or refuses the destination says
+  so in the error. The status line reads "Connected as NAME (through the proxy host:port)".
+
+Pictures are fetched over one connection that is kept for the next picture (and dropped if the server closes it,
+says `Connection: close`, or it sits idle for 20 s), so a channel full of inline thumbnails pays for one TLS
+handshake, not one each.
+
 ## Logging in: bot tokens and user tokens
 
 - **Bot token (the supported way, built first).** Create an application and bot in the Discord Developer
@@ -132,6 +154,7 @@ Host side (macOS/Linux), strict C89 flags approximating gcc 2.7.2:
     make discord-smoke # the whole stack against the real discord.com / gateway.discord.gg (needs network, no token)
     make gw-smoke      # the gateway end to end against a scripted fake gateway, plain and TLS (same venv)
     make SAN=1 test    # the same under AddressSanitizer + UBSan
+    make proxy-smoke   # HTTP CONNECT and SOCKS5 proxies (with and without a login) against proxies written in Python
     make client-smoke  # the client engine end to end against a scripted fake Discord, plain and TLS
     make check-objc    # syntax-check app/*.m against the modern SDK (never linked)
     make ui-smoke      # the real windows and controllers, driven like a user, against the fake Discord (macOS only)

@@ -256,15 +256,27 @@ static KMs app_now_ms(void)
         return;
     }
     if (!loginController) loginController = [[LoginController alloc] initWithOwner:self];
-    [loginController showPanelWithToken:prefs.token isBot:(prefs.is_bot ? YES : NO) remember:(prefs.remember ? YES : NO)];
+    [loginController showPanelWithToken:prefs.token isBot:(prefs.is_bot ? YES : NO) remember:(prefs.remember ? YES : NO)
+                                  proxy:prefs.proxy proxyUser:prefs.proxy_user proxyPassword:prefs.proxy_pass];
 }
 
 - (void)loginController:(LoginController *)lc didSubmitToken:(char *)token isBot:(BOOL)isBot remember:(BOOL)remember
+                  proxy:(NSString *)proxy proxyUser:(NSString *)proxyUser proxyPassword:(char *)proxyPass
 {
     prefs.is_bot = isBot ? 1 : 0;
     prefs.remember = remember ? 1 : 0;
     memset(prefs.token, 0, sizeof(prefs.token));
     if (remember) strncpy(prefs.token, token, sizeof(prefs.token) - 1);
+    memset(&prefs.proxy, 0, sizeof(prefs.proxy));
+    memset(&prefs.proxy_user, 0, sizeof(prefs.proxy_user));
+    memset(&prefs.proxy_pass, 0, sizeof(prefs.proxy_pass));
+    strncpy(prefs.proxy, UI_CPATH(proxy), sizeof(prefs.proxy) - 1);
+    strncpy(prefs.proxy_user, UI_CPATH(proxyUser), sizeof(prefs.proxy_user) - 1);
+    if (proxyPass) {
+        strncpy(prefs.proxy_pass, proxyPass, sizeof(prefs.proxy_pass) - 1);       /* the live session uses it; the file keeps it only with "remember" */
+        memset(proxyPass, 0, strlen(proxyPass));
+        free(proxyPass);
+    }
     [self savePrefs];
     if (!isBot) {
         int ans = NSRunAlertPanel(@"User account tokens",
@@ -336,6 +348,9 @@ static KMs app_now_ms(void)
     free(token);
     kc->trust = &trust;
     kc->check_dates = prefs.check_dates;
+    strncpy(kc->proxy_spec, prefs.proxy, sizeof(kc->proxy_spec) - 1);
+    strncpy(kc->proxy_user, prefs.proxy_user, sizeof(kc->proxy_user) - 1);
+    strncpy(kc->proxy_pass, prefs.proxy_pass, sizeof(kc->proxy_pass) - 1);
     if (restHost) {
         strncpy(kc->rest_host, [restHost cString], sizeof(kc->rest_host) - 1);
         kc->rest_port = restPort;

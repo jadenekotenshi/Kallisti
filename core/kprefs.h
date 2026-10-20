@@ -7,6 +7,9 @@ typedef struct {
     char token[200];
     int remember;                /* keep the token in the file */
     int is_bot;                  /* 1: a bot token (the default), 0: a user-account token */
+    char proxy[256];             /* "[http://|socks5://]host[:port]", or "" for none (or the environment's) */
+    char proxy_user[128];
+    char proxy_pass[128];        /* kept only with "remember", like the token */
     int check_dates;             /* 1 (default): reject certificates outside their validity dates; turn off only
                                   * when the computer's clock is wrong */
 } KPrefs;

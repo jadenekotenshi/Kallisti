@@ -107,6 +107,14 @@ async def rest_conn(reader, writer):
                     else:
                         writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
                     await writer.drain()
+                elif path == '/img/closeme':          # says it will close: the client must not keep the connection
+                    writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nConnection: close\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
+                    await writer.drain()
+                    break
+                elif path == '/img/slam':             # closes right after the reply without saying so
+                    writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
+                    await writer.drain()
+                    break
                 elif path == '/img/photo.jpg':
                     if 'format=jpeg' not in query:
                         await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'no format=jpeg: ' + query})

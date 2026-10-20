@@ -156,6 +156,18 @@ static int c_has_dmhi(KClient *kc, Seen *s)
 static int c_channel_event(KClient *kc, Seen *s) { return s->nchannels >= 1; }
 static int c_images4(KClient *kc, Seen *s) { return s->nimages >= 4; }
 static int c_images1(KClient *kc, Seen *s) { return s->nimages >= 1; }
+static int c_has_text(KClient *kc, const char *text)
+{
+    Channel *c = model_find_channel(&kc->model, "200");
+    int i;
+
+    for (i = 0; c != NULL && i < c->nmsgs; i++) {
+        if (strcmp(c->msgs[i].text, text) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
 static int c_stopped(KClient *kc, Seen *s) { return kc->state == KC_STOPPED; }
 
 static int count_text(KClient *kc, const char *text)
@@ -178,6 +190,7 @@ static void configure(KClient *kc, int port, int tls, const TrustStore *ts)
     kc->rest_tls = tls;
     sprintf(kc->gateway_url, "%s://localhost:%d/?v=10&encoding=json", tls ? "wss" : "ws", port + 1);
     kc->trust = ts;
+    kc->proxy_env = 0;                                   /* whatever the shell exports must not leak into the tests */
 }
 
 static void test_good_session(int port, int tls, const TrustStore *ts)
@@ -322,6 +335,29 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(kc_fetch_image_ex(&kc, u, 300, 200, 800, 600, 10, KC_FETCH_JPEG) == 0);
         CHECK(run_until(&kc, &seen, c_images1, 15000));
         CHECK(seen.image_ok[0] && seen.image_tag[0] == 10 && seen.image_w[0] == 300 && seen.image_h[0] == 200);
+        /* all of those went over ONE connection to the picture server; a reply that says Connection: close ends it,
+         * and one that closes without saying so costs a quiet retry, never an error */
+        CHECK(kc.fopens == 1);
+        seen.nimages = 0;
+        sprintf(u, "%s/closeme", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && kc.fopens == 1);
+        seen.nimages = 0;
+        sprintf(u, "%s/cat.png", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && kc.fopens == 2);                    /* a new connection after "close" */
+        seen.nimages = 0;
+        sprintf(u, "%s/slam", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0]);
+        seen.nimages = 0;
+        sprintf(u, "%s/cat.png", base);
+        CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);                     /* the kept connection is dead now */
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && kc.fopens >= 3 && kc.fopens <= 4);
         CHECK(kc_fetch_image(&kc, "ftp://nope/x.png", 0, 0) == -1 && kc_fetch_image(&kc, "garbage", 0, 0) == -1);
     }
 
@@ -345,6 +381,82 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
     kc_stop(&kc);
     CHECK(run_until(&kc, &seen, c_stopped, 1000));
     kc_free(&kc);
+}
+
+static int log_lines(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    char b[300];
+    int n = 0;
+
+    while (f != NULL && fgets(b, sizeof(b), f) != NULL) {
+        n++;
+    }
+    if (f != NULL) {
+        fclose(f);
+    }
+    return n;
+}
+
+static int log_has(const char *path, const char *needle)
+{
+    FILE *f = fopen(path, "r");
+    char b[300];
+    int found = 0;
+
+    while (f != NULL && fgets(b, sizeof(b), f) != NULL) {
+        if (strstr(b, needle) != NULL) {
+            found = 1;
+        }
+    }
+    if (f != NULL) {
+        fclose(f);
+    }
+    return found;
+}
+
+/* a whole session (login, gateway, history, one picture) with every connection going through a proxy */
+static void test_proxied(int port, int tls, const TrustStore *ts, const char *spec, int use_env, const char *log)
+{
+    KClient kc;
+    Seen seen;
+    char b[160], u[200];
+
+    memset(&seen, 0, sizeof(seen));
+    kc_init(&kc, "goodtoken", 1);
+    configure(&kc, port, tls, ts);
+    if (use_env) {
+        kc.proxy_env = 1;
+    } else {
+        strcpy(kc.proxy_spec, spec);
+    }
+    kc_start(&kc, now_ms());
+    CHECK(run_until(&kc, &seen, c_online, 20000));
+    CHECK(seen.nstates >= 3 && strstr(seen.texts[seen.nstates - 1], "through the proxy") != NULL);
+    kc_open_channel(&kc, "200");
+    CHECK(run_until(&kc, &seen, c_history, 15000));
+    CHECK(model_find_channel(&kc.model, "200") != NULL && model_find_channel(&kc.model, "200")->nmsgs >= 3);
+    sprintf(u, "%s://localhost:%d/img/cat.png", tls ? "https" : "http", port);
+    seen.nimages = 0;
+    CHECK(kc_fetch_image(&kc, u, 0, 0) == 0);
+    CHECK(run_until(&kc, &seen, c_images1, 20000));
+    CHECK(seen.image_ok[0] && seen.image_w[0] == 300);
+    CHECK(kc_send_message(&kc, "200", "through a proxy") == 0);
+    {
+        KMs t0 = now_ms();
+
+        while (KMS_SINCE(now_ms(), t0) < 3000 && !c_has_text(&kc, "through a proxy")) {
+            kc_tick(&kc, now_ms());
+            usleep(5000);
+        }
+        CHECK(c_has_text(&kc, "through a proxy"));
+    }
+    kc_stop(&kc);
+    kc_free(&kc);
+    sprintf(b, "CONNECT localhost:%d", port);
+    CHECK(log_has(log, b));
+    sprintf(b, "CONNECT localhost:%d", port + 1);
+    CHECK(log_has(log, b));
 }
 
 static void test_bad_token(int port, int tls, const TrustStore *ts)
@@ -393,15 +505,17 @@ static void test_unreachable(void)
 
 int main(int argc, char **argv)
 {
-    pid_t plain, secure;
+    pid_t plain, secure, proxies;
+    int pbase = 0;
+    char spec[200];
     int status, pp, pt;
     TrustStore ca, empty;
     FILE *f;
     static char pem[16384];
     size_t n;
 
-    if (argc != 8) {
-        fprintf(stderr, "usage: client_smoke SERVER PYTHON PORT_PLAIN PORT_TLS CHAIN KEY CA\n");
+    if (argc != 11) {
+        fprintf(stderr, "usage: client_smoke SERVER PYTHON PORT_PLAIN PORT_TLS CHAIN KEY CA PROXY_SERVER PROXY_BASE PROXY_LOG\n");
         return 2;
     }
     if (ssh_rng_seed_system() == 0) {
@@ -418,6 +532,13 @@ int main(int argc, char **argv)
     secure = fork();
     if (secure == 0) {
         execlp(argv[2], argv[2], argv[1], argv[4], argv[5], argv[6], (char *)NULL);
+        _exit(127);
+    }
+    pbase = atoi(argv[9]);
+    remove(argv[10]);
+    proxies = fork();
+    if (proxies == 0) {
+        execlp(argv[2], argv[2], argv[8], argv[9], argv[10], (char *)NULL);
         _exit(127);
     }
     trust_init(&ca);
@@ -439,6 +560,67 @@ int main(int argc, char **argv)
     test_untrusted(pt, &empty);
     test_unreachable();
 
+    /* through proxies: HTTP CONNECT with a login over TLS, SOCKS5 plain, SOCKS5 with a login over TLS */
+    printf("proxies\n");
+    sprintf(spec, "http://bob:s3cret@127.0.0.1:%d", pbase + 1);
+    test_proxied(pt, 1, &ca, spec, 0, argv[10]);
+    sprintf(spec, "socks5://127.0.0.1:%d", pbase + 2);
+    test_proxied(pp, 0, NULL, spec, 0, argv[10]);
+    sprintf(spec, "socks5://bob:s3cret@127.0.0.1:%d", pbase + 3);
+    test_proxied(pt, 1, &ca, spec, 0, argv[10]);
+    {
+        /* the environment: used when nothing is configured, and no_proxy keeps local servers direct */
+        char envp[100], before_msg[10];
+        int before;
+
+        (void)before_msg;
+        sprintf(envp, "http_proxy=http://127.0.0.1:%d", pbase);
+        putenv(envp);
+        test_proxied(pp, 0, NULL, "", 1, argv[10]);
+        putenv((char *)"no_proxy=localhost");
+        before = log_lines(argv[10]);
+        {
+            KClient kc;
+            Seen seen;
+
+            memset(&seen, 0, sizeof(seen));
+            kc_init(&kc, "goodtoken", 1);
+            configure(&kc, pp, 0, NULL);
+            kc.proxy_env = 1;
+            kc_start(&kc, now_ms());
+            CHECK(run_until(&kc, &seen, c_online, 20000));
+            CHECK(strcmp(seen.texts[seen.nstates - 1], "Connected as Kallisti-bot") == 0);     /* direct: no proxy note */
+            kc_stop(&kc);
+            kc_free(&kc);
+        }
+        CHECK(log_lines(argv[10]) == before);
+        putenv((char *)"no_proxy=");
+        putenv((char *)"http_proxy=");
+    }
+    /* bad settings are reported at once, and a proxy that is not there says so */
+    {
+        KClient kc;
+        Seen seen;
+
+        memset(&seen, 0, sizeof(seen));
+        kc_init(&kc, "goodtoken", 1);
+        configure(&kc, pp, 0, NULL);
+        strcpy(kc.proxy_spec, "socks4://nowhere");
+        kc_start(&kc, now_ms());
+        CHECK(kc.state == KC_FATAL);
+        kc_free(&kc);
+        kc_init(&kc, "goodtoken", 1);
+        configure(&kc, pp, 0, NULL);
+        strcpy(kc.proxy_spec, "http://127.0.0.1:1");
+        memset(&seen, 0, sizeof(seen));
+        kc_start(&kc, now_ms());
+        CHECK(run_until(&kc, &seen, c_fatal, 30000));
+        CHECK(strstr(seen.texts[seen.nstates - 1], "proxy") != NULL);
+        kc_free(&kc);
+    }
+
+    kill(proxies, SIGTERM);
+    waitpid(proxies, &status, 0);
     kill(plain, SIGTERM);
     kill(secure, SIGTERM);
     waitpid(plain, &status, 0);

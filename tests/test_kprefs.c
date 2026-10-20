@@ -35,9 +35,13 @@ int main(void)
     p.remember = 1;
     p.is_bot = 0;
     p.check_dates = 0;
+    strcpy(p.proxy, "socks5://proxy.lan:1080");
+    strcpy(p.proxy_user, "bob");
+    strcpy(p.proxy_pass, "s3cret");
     CHECK(kprefs_save(&p, path) == 0);
     CHECK(stat(path, &st) == 0 && (st.st_mode & 077) == 0);
     CHECK(kprefs_load(&q, path) == 0 && q.remember && !q.is_bot && !q.check_dates && strcmp(q.token, "abc.def-123") == 0);
+    CHECK(strcmp(q.proxy, "socks5://proxy.lan:1080") == 0 && strcmp(q.proxy_user, "bob") == 0 && strcmp(q.proxy_pass, "s3cret") == 0);
 
     /* not remembered: the token never reaches the file */
     p.remember = 0;
@@ -50,8 +54,9 @@ int main(void)
         buf[n] = '\0';
         fclose(f);
         CHECK(strstr(buf, "abc.def") == NULL && strstr(buf, "remember=0") != NULL);
+        CHECK(strstr(buf, "s3cret") == NULL && strstr(buf, "proxy=socks5://proxy.lan:1080") != NULL && strstr(buf, "proxy_user=bob") != NULL);
     }
-    CHECK(kprefs_load(&q, path) == 0 && !q.remember && q.token[0] == '\0');
+    CHECK(kprefs_load(&q, path) == 0 && !q.remember && q.token[0] == '\0' && q.proxy_pass[0] == '\0' && strcmp(q.proxy_user, "bob") == 0);
 
     /* a token in a file that does not say remember=1 is ignored; junk is skipped; CRLF is fine */
     write_text(path, "token=sneaky\r\nbot=1\r\nnonsense\r\n=x\r\nunknown=5\r\n");

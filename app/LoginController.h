@@ -10,13 +10,17 @@
     NSPanel     *panel;
     SecretField *tokenField;
     NSButton    *rememberSwitch, *userSwitch;
+    NSTextField *proxyField, *proxyUserField;
+    SecretField *proxyPassField;
 }
 - (id)initWithOwner:(id)anOwner;
-- (void)showPanelWithToken:(const char *)token isBot:(BOOL)isBot remember:(BOOL)remember;
+- (void)showPanelWithToken:(const char *)token isBot:(BOOL)isBot remember:(BOOL)remember
+                     proxy:(const char *)proxy proxyUser:(const char *)proxyUser proxyPassword:(const char *)proxyPass;
 - (void)closePanel;
 @end
 
 @interface NSObject (LoginControllerOwner)
-/* token is a malloc'd UTF-8 copy; the owner wipes and frees it. */
-- (void)loginController:(LoginController *)lc didSubmitToken:(char *)token isBot:(BOOL)isBot remember:(BOOL)remember;
+/* token and proxyPassword are malloc'd UTF-8 copies; the owner wipes and frees them. */
+- (void)loginController:(LoginController *)lc didSubmitToken:(char *)token isBot:(BOOL)isBot remember:(BOOL)remember
+                  proxy:(NSString *)proxy proxyUser:(NSString *)proxyUser proxyPassword:(char *)proxyPass;
 @end
