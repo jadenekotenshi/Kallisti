@@ -1,5 +1,6 @@
 #import "Compat.h"
 #include "model.h"
+#include "emoji.h"
 
 /* The messages of one channel and a field to type into: a scrolling, coloured log above a one-line input.  Used
  * for the right-hand side of the main window (where -setChannel: follows the list's selection) and for each
@@ -40,6 +41,10 @@
 /* The thumbnail for an attachment address if it is on hand; otherwise nil, and the source starts fetching it and
  * will have the pane draw itself again when it arrives. */
 - (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h jpeg:(BOOL)isJpeg;
+/* Unicode emoji as pictures: the pack to look them up in (NULL if switched off or there is none), and the picture for a
+ * key (nil if that cannot be made). */
+- (EmojiPack *)emojiPack;
+- (NSImage *)unicodeEmojiImageForKey:(NSString *)key;
 /* The picture of a custom emoji, likewise (nil until it has been fetched). */
 - (NSImage *)inlineEmojiImageForID:(NSString *)emojiId;
 @end

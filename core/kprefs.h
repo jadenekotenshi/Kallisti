@@ -10,6 +10,7 @@ typedef struct {
     char proxy[256];             /* "[http://|socks5://]host[:port]", or "" for none (or the environment's) */
     char proxy_user[128];
     char proxy_pass[128];        /* kept only with "remember", like the token */
+    int emoji_pictures;          /* 1 (default): draw Unicode emoji as pictures (needs app/emoji.pack) */
     int check_dates;             /* 1 (default): reject certificates outside their validity dates; turn off only
                                   * when the computer's clock is wrong */
 } KPrefs;

@@ -1,0 +1,12 @@
+Kallisti's emoji pictures (app/emoji.pack) are Twemoji graphics, shrunk to 16x16 pixels.
+
+Twemoji graphics:
+  Copyright 2019 Twitter, Inc and other contributors
+  Copyright jdecked and other contributors (the maintained fork, https://github.com/jdecked/twemoji, version 15.1.0)
+  Licensed under CC-BY 4.0: https://creativecommons.org/licenses/by/4.0/
+
+You are free to share and adapt them as long as you give appropriate credit, link to the license, and say that changes
+were made. Here the changes are: each 72x72 picture was scaled down to 16x16 pixels (with a premultiplied-alpha filter)
+and stored compressed in one file by tools/gen_emoji.py.
+
+The rest of Kallisti is not covered by this license.

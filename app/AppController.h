@@ -7,6 +7,7 @@
 #import "ImageListController.h"
 #include "client.h"
 #include "kprefs.h"
+#include "emoji.h"
 
 /* Owns the one Discord client engine (core/client.c), the timer that drives it, the sign-in panel and the main
  * window.  Reads the engine's events and the model's change queue every tick and hands them to the window. */
@@ -34,6 +35,9 @@
     NSMutableSet        *thumbsAsked;
     BOOL                inlineImages;      /* the experimental inline-pictures switch */
     NSMenuItem          *inlineItem;
+    EmojiPack           *emojiPack;        /* the Unicode emoji pictures, or NULL */
+    NSMutableDictionary *emojiImages;      /* key -> NSImage, made when first needed */
+    NSMenuItem          *emojiItem;
     NSString            *emojiBase;        /* where custom emoji pictures live; tests point it at the fake server */
     NSString          *restHost, *gatewayURL;   /* tests aim the client at a fake server; nil: Discord */
     int                restPort, restTLS;
@@ -52,6 +56,9 @@
 - (NSArray *)imageItemsForCurrentChannel;
 - (void)openImageItem:(ImageItem *)item;
 - (NSArray *)imageWindows;
+- (BOOL)loadEmojiPackFromPath:(NSString *)path;   /* also what launch does with the pack in the app bundle */
+- (void)setEmojiPictures:(BOOL)on;                 /* Discord > Show Emoji as Pictures */
+- (BOOL)emojiPicturesEnabled;
 - (void)setEmojiBase:(NSString *)base;      /* default https://cdn.discordapp.com/emojis/ */
 - (void)setInlineImages:(BOOL)on;           /* the experimental switch (Discord menu), also for the tests */
 - (BOOL)inlineImagesEnabled;

@@ -28,6 +28,7 @@ static NSColor *author_color(const char *name)
 @interface ChannelPane (Private)
 - (void)appendString:(NSString *)s color:(NSColor *)color font:(NSFont *)font;
 - (void)appendMessage:(const Message *)m;
+- (void)appendRich:(const char *)text customs:(const Emoji *)customs count:(int)ncustoms prefix:(NSString *)prefix color:(NSColor *)color;
 - (void)inputSubmitted:(id)sender;
 @end
 
@@ -102,6 +103,68 @@ static NSColor *author_color(const char *name)
     [messageText setFont:font range:r];
 }
 
+/* Text with emoji drawn as pictures: Unicode emoji (found in the text itself) and custom emoji (at the given positions),
+ * each only where its picture is on hand; everything else is text. */
+- (void)appendRich:(const char *)text customs:(const Emoji *)customs count:(int)ncustoms prefix:(NSString *)prefix
+             color:(NSColor *)color
+{
+    EmojiPack *pack = imageSource != nil ? [imageSource emojiPack] : NULL;
+    size_t len = strlen(text), at = 0, scan = 0, us = 0, ue = 0;
+    int ci = 0, have_u = 0;
+    char key[EMOJI_KEY_MAX];
+
+    if (prefix) [self appendString:prefix color:color font:normalFont];
+    if (pack == NULL && (customs == NULL || ncustoms == 0)) {
+        [self appendString:S(text) color:color font:normalFont];
+        return;
+    }
+    for (;;) {
+        size_t next_custom = (customs != NULL && ci < ncustoms) ? (size_t)customs[ci].off : len + 1;
+        NSImage *img = nil;
+        size_t from, to;
+
+        if (pack != NULL && !have_u) {
+            have_u = emoji_next(pack, text, len, scan, &us, &ue, key) ? 1 : 2;       /* 2: no more */
+        }
+        if (customs != NULL && ci < ncustoms && next_custom < len + 1 && (have_u != 1 || next_custom <= us)) {
+            /* a custom emoji comes first (if its picture has arrived) */
+            const Emoji *e = &customs[ci++];
+
+            if (next_custom < at || (size_t)(e->off + e->len) > len) continue;
+            img = [imageSource inlineEmojiImageForID:S(e->id)];
+            from = (size_t)e->off;
+            to = (size_t)(e->off + e->len);
+            if (img == nil) {
+                scan = scan > to ? scan : to;
+                continue;
+            }
+            if (have_u == 1 && us < to) have_u = 0;                               /* (cannot overlap, but be safe) */
+        } else if (have_u == 1) {
+            img = [imageSource unicodeEmojiImageForKey:S(key)];
+            from = us;
+            to = ue;
+            have_u = 0;
+            scan = ue;
+            if (img == nil) continue;                                             /* no picture: leave it as text */
+        } else {
+            break;
+        }
+        if (from > at) {
+            char *seg = (char *)malloc(from - at + 1);
+
+            if (seg == NULL) return;
+            memcpy(seg, text + at, from - at);
+            seg[from - at] = '\0';
+            [self appendString:S(seg) color:color font:normalFont];
+            free(seg);
+        }
+        [[messageText textStorage] appendAttributedString:ui_image_attachment(img)];
+        at = to;
+        if (scan < to) scan = to;
+    }
+    [self appendString:S(text + at) color:color font:normalFont];
+}
+
 - (void)appendMessage:(const Message *)m
 {
     char hm[8], day[16];
@@ -114,30 +177,7 @@ static NSColor *author_color(const char *name)
     [self appendString:[NSString stringWithFormat:@"[%s] ", hm] color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:S(m->author) color:author_color(m->author) font:boldFont];
     [self appendString:@": " color:[NSColor blackColor] font:normalFont];
-    if (inlineImages && imageSource != nil && m->nemoji > 0) {
-        /* the text, with each custom emoji whose picture is on hand drawn as that picture instead of ":name:" */
-        size_t at = 0, len = strlen(m->text);
-        int ei;
-
-        for (ei = 0; ei < m->nemoji; ei++) {
-            const Emoji *e = &m->emoji[ei];
-            NSImage *img = [imageSource inlineEmojiImageForID:S(e->id)];
-            char *seg;
-
-            if (img == nil || (size_t)e->off < at || (size_t)(e->off + e->len) > len) continue;
-            seg = (char *)malloc((size_t)e->off - at + 1);
-            if (seg == NULL) break;
-            memcpy(seg, m->text + at, (size_t)e->off - at);
-            seg[(size_t)e->off - at] = '\0';
-            [self appendString:S(seg) color:[NSColor blackColor] font:normalFont];
-            free(seg);
-            [[messageText textStorage] appendAttributedString:ui_image_attachment(img)];
-            at = (size_t)(e->off + e->len);
-        }
-        [self appendString:S(m->text + at) color:[NSColor blackColor] font:normalFont];
-    } else {
-        [self appendString:S(m->text) color:[NSColor blackColor] font:normalFont];
-    }
+    [self appendRich:m->text customs:(inlineImages && imageSource != nil) ? m->emoji : NULL count:m->nemoji prefix:nil color:[NSColor blackColor]];
     if (m->edited) [self appendString:@" (edited)" color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];
     if (m->embeds != NULL && m->embeds[0] != '\0') {          /* link previews and other embeds, one grey line each */
@@ -145,7 +185,10 @@ static NSColor *author_color(const char *name)
         unsigned li;
 
         for (li = 0; li < [lines count]; li++) {
-            [self appendString:[NSString stringWithFormat:@"    %@\n", [lines objectAtIndex:li]] color:[NSColor darkGrayColor] font:normalFont];
+            NSData *u8 = ui_utf8_cstring([lines objectAtIndex:li]);
+
+            [self appendRich:(const char *)[u8 bytes] customs:NULL count:0 prefix:@"    " color:[NSColor darkGrayColor]];
+            [self appendString:@"\n" color:[NSColor darkGrayColor] font:normalFont];
         }
     }
     if (inlineImages && imageSource != nil) {

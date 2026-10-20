@@ -86,6 +86,14 @@ before any OPENSTEP code:
      experimental switch, inline. Previews that Discord adds a moment after the message (MESSAGE_UPDATE) appear when
      they arrive. Stickers show as `[sticker: Wave]` and their PNG/GIF is in the picture list (Lottie stickers
      cannot be shown).
+   - Unicode emoji: OPENSTEP's fonts have none, so Kallisti draws them as pictures. `app/emoji.pack` (2.5 MB, copied
+     into the application bundle by `Makefile.openstep`) holds a 16x16 picture for each of the 3,838 emoji Twemoji 15.1
+     has; `core/emoji.c` finds the emoji in a message -- skin tones, flags, keycaps, joined families, tag flags -- by
+     Twemoji's own file-naming rules and the pictures stand in for them, with no network involved. A bare (c), (r),
+     (tm), digit or plain arrow stays text (fonts have them); `FE0F` makes them emoji. Discord > *Show Emoji as
+     Pictures* switches it off (they then show as `?`). Emoji in names, server names and the window list are still `?`.
+     `tools/gen_emoji.py` rebuilds the pack from jsDelivr (needs Pillow). The pictures are CC-BY 4.0, see
+     `EMOJI-LICENSE.txt`. Typing `:smile:` is not converted: Discord's own client does that; you can paste the emoji.
    - Custom emoji: `<:blob:123>` shows as `:blob:`; with *Show Images Inline* the emoji's own picture (Discord's 32-pixel
      PNG, shown at 16) takes its place in the line, each fetched once. Animated emoji show their first frame.
    - Animated GIFs: opening a GIF from the picture list fetches the GIF itself (resized to fit 400x300 -- no `format`
@@ -97,7 +105,7 @@ before any OPENSTEP code:
 
 **v0.1 scope:** connect, list servers and their text channels, read live messages, send messages -- plus the
 three additions above. No reactions, embeds beyond plain text, or voice. Known limits: characters outside the
-Basic Multilingual Plane (most emoji) show as `?`; threads and voice channels are not listed; channels are not
+Basic Multilingual Plane that are not emoji show as `?`; threads and voice channels are not listed; channels are not
 filtered by the bot's permissions (opening one it cannot read says so in the message view); animated GIFs show
 their first frame; user-token mode is untested (no intents are sent for it and nothing else differs). Decoding a
 large picture takes seconds on a 68040; arithmetic-coded, 12-bit, lossless and CMYK JPEGs are refused.

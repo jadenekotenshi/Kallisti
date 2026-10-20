@@ -64,6 +64,28 @@ static BOOL hasPicMessage(AppController *app)
     return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
 }
 
+/* the (last) line of `text` that contains `needle`, without its newline */
+static NSString *lineWith(NSString *text, NSString *needle)
+{
+    NSRange hit = [text rangeOfString:needle options:NSBackwardsSearch];
+    NSRange before, after;
+    unsigned from = 0, to = [text length];
+
+    if (hit.location == NSNotFound) return @"";
+    before = [text rangeOfString:@"\n" options:NSBackwardsSearch range:NSMakeRange(0, hit.location)];
+    if (before.location != NSNotFound) from = before.location + 1;
+    after = [text rangeOfString:@"\n" options:0 range:NSMakeRange(hit.location, [text length] - hit.location)];
+    if (after.location != NSNotFound) to = after.location;
+    return [text substringWithRange:NSMakeRange(from, to - from)];
+}
+
+static BOOL hasUnicodeEmojiMessage(AppController *app)
+{
+    NSString *t = [[app mainController] messageString];
+
+    return [t rangeOfString:@"hi "].location != NSNotFound && [t rangeOfString:@" bye"].location != NSNotFound;
+}
+
 static BOOL hasGifMessage(AppController *app)
 {
     return [[[app mainController] messageString] rangeOfString:@"[image: dance.gif 25x15]"].location != NSNotFound;
@@ -364,6 +386,34 @@ int main(int argc, char **argv)
         CHECK(countOf([main messageString], marker) == 4);             /* ... and the two custom emoji above */
         [app setInlineImages:NO];
         CHECK([[main messageString] rangeOfString:marker].location == NSNotFound);
+    }
+
+    /* Unicode emoji: pictures (no network involved), invisible selectors dropped; as text they become '?' */
+    {
+        unichar obj = 0xFFFC;
+        NSString *marker = [NSString stringWithCharacters:&obj length:1];
+        NSString *t;
+        NSRange r;
+
+        CHECK([app loadEmojiPackFromPath:@"app/emoji.pack"] && [app emojiPicturesEnabled]);
+        [main typeText:@"uemoji"];
+        CHECK(waitFor(hasUnicodeEmojiMessage, app, 10.0));
+        t = lineWith([main messageString], @" bye");
+        r = [t rangeOfString:@"hi "];
+        CHECK(r.location != NSNotFound);
+        t = [t substringFromIndex:r.location];
+        {
+            NSString *want = [NSString stringWithFormat:@"hi %@ %@ %@ bye", marker, marker, marker];
+
+            CHECK([t isEqualToString:want]);                                                                    /* three pictures, nothing else */
+        }
+        [app setEmojiPictures:NO];
+        t = lineWith([main messageString], @" bye");
+        r = [t rangeOfString:@"hi "];
+        t = [t substringFromIndex:r.location];
+        CHECK([t hasPrefix:@"hi ? "] && [t hasSuffix:@" bye"] && [t rangeOfString:marker].location == NSNotFound);
+        CHECK(![app emojiPicturesEnabled]);
+        [app setEmojiPictures:YES];
     }
 
     /* a DM from a stranger lands in Direct Messages, first in the list, as a mention */

@@ -16,7 +16,7 @@ endif
 CORE_SRC = $(wildcard core/*.c)
 CORE_OBJ = $(patsubst core/%.c,$(BUILD)/core_%.o,$(CORE_SRC))
 
-TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots kprefs ktime png jpeg netproxy gif
+TESTS = prims crypto bignum ecc rsa der x509 tls_wire tls_prf tls_aead tls tls_pins json http ws gateway rest model chain roots kprefs ktime png jpeg netproxy gif emoji
 
 all: test
 
@@ -108,7 +108,7 @@ discord-smoke:
 #   dist/KALLISTI.ISO  a CD image containing KALLISTI.TAR (attach it as a CD-ROM in the VM)
 # -b 20 matters: old tar implementations read archives in fixed 10240-byte records, and a short final record
 # makes their first read() look like premature EOF.
-DISTFILES = README.md Makefile.openstep core app tests tools
+DISTFILES = README.md EMOJI-LICENSE.txt Makefile.openstep core app tests tools
 dist:
 	mkdir -p dist
 	COPYFILE_DISABLE=1 tar --format ustar -b 20 --exclude '*.o' --exclude '.DS_Store' \

@@ -100,6 +100,7 @@ NSString *ui_string_from_utf8(const char *s)
             cp = (cp << 6) | (cc & 0x3f);
         }
         if (k <= extra) { out[o++] = (unichar)c; i++; continue; }                        /* truncated: Latin-1 */
+        if (cp == 0xfe0f || cp == 0x200d || cp == 0x20e3 || (cp >= 0xe0020 && cp <= 0xe007f)) { i += (size_t)extra + 1; continue; }   /* invisible: emoji selectors and joiners */
         out[o++] = cp > 0xffff ? (unichar)'?' : (unichar)cp;
         i += (size_t)extra + 1;
     }

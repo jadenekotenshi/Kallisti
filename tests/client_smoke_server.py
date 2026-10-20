@@ -206,6 +206,9 @@ async def rest_conn(reader, writer):
                                               'proxy_url': '%s://localhost:%d/img/cat.png?ex=1&hm=abc' % (SCHEME_HTTP, PORT),
                                               'width': 300, 'height': 200, 'content_type': 'image/png'}]
                         await broadcast('MESSAGE_CREATE', pm)
+                    if content == 'uemoji':
+                        state['next_id'] += 1
+                        await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'hi \U0001F600 \u2764\ufe0f \U0001F44D\U0001F3FD bye', author='7', name='someone'))
                     if content == 'emoji':
                         state['next_id'] += 1
                         await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'cool <:blob:123> and <a:party:456> yes', author='7', name='someone'))

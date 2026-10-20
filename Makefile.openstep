@@ -52,8 +52,8 @@ ICONTIFF  = app/Kallisti.tiff
 ICONFLAGS = -sectcreate __ICON __header $(ICONHDR) -segprot __ICON r r -sectcreate __ICON app $(ICONTIFF)
 
 CORE_OBJS = core/aes.o core/base64.o core/bignum.o core/chacha.o core/chain.o core/client.o \
-            core/der.o core/ecc.o core/gateway.o core/gif.o core/hmac.o core/http.o core/img.o \
-            core/inflate.o core/jpeg.o core/json.o core/kprefs.o core/ktime.o core/md5.o \
+            core/der.o core/ecc.o core/emoji.o core/gateway.o core/gif.o core/hmac.o core/http.o \
+            core/img.o core/inflate.o core/jpeg.o core/json.o core/kprefs.o core/ktime.o core/md5.o \
             core/model.o core/nacl.o core/netconn.o core/png.o core/rest.o core/rng.o core/roots.o \
             core/roots_bundled.o core/rsa.o core/sha1.o core/sha2.o core/tls.o \
             core/tls_aead_chacha.o core/tls_aead_gcm.o core/tls_pins.o core/tls_prf.o \
@@ -93,10 +93,12 @@ APP_OBJS  = app/AppController.o app/ChannelPane.o app/ChannelWindow.o app/DMCont
 
 all: $(APP)/Kallisti
 
-$(APP)/Kallisti: $(CORE_OBJS) $(APP_OBJS) $(ICONHDR) $(ICONTIFF)
+$(APP)/Kallisti: $(CORE_OBJS) $(APP_OBJS) $(ICONHDR) $(ICONTIFF) app/emoji.pack EMOJI-LICENSE.txt
 	-mkdir $(APP)
 	@( cd $(APP) ) >/dev/null 2>&1 || { echo "make: $(APP) is missing or is not a directory:"; ls -ld $(APP); echo "remove it and run make again"; exit 1; }
 	$(CC) $(ARCHS) -o $(APP)/Kallisti $(CORE_OBJS) $(APP_OBJS) $(ICONFLAGS) $(LIBS) || { echo "make: linking with the __ICON segment failed; retrying without an icon"; $(CC) $(ARCHS) -o $(APP)/Kallisti $(CORE_OBJS) $(APP_OBJS) $(LIBS); }
+	cp app/emoji.pack $(APP)/emoji.pack
+	cp EMOJI-LICENSE.txt $(APP)/EMOJI-LICENSE.txt
 
 # Show what was linked in: expect a segment __ICON with sections __header and app.
 iconcheck:
@@ -204,6 +206,10 @@ build/test_gif: tests/test_gif.c $(CORE_OBJS)
 	-mkdir build
 	$(CC) $(CFLAGS) -o build/test_gif tests/test_gif.c $(CORE_OBJS)
 
+build/test_emoji: tests/test_emoji.c $(CORE_OBJS)
+	-mkdir build
+	$(CC) $(CFLAGS) -o build/test_emoji tests/test_emoji.c $(CORE_OBJS)
+
 # Compiler/CPU arithmetic sanity (see tests/test_prims.c): its object goes through the same .c.o
 # rule as core/nacl.o, so it is built with exactly the flags nacl.o gets.
 tests/test_prims.o: tests/prims_ref.h core/nacl.c
@@ -212,7 +218,7 @@ build/test_prims: tests/test_prims.o $(CORE_OBJS)
 	-mkdir build
 	$(CC) $(CFLAGS) -o build/test_prims tests/test_prims.o $(CORE_OBJS)
 
-test: build/test_prims build/test_crypto build/test_bignum build/test_ecc build/test_rsa build/test_der build/test_x509 build/test_tls_wire build/test_tls_prf build/test_tls_aead build/test_tls build/test_tls_pins build/test_json build/test_http build/test_ws build/test_gateway build/test_rest build/test_model build/test_chain build/test_roots build/test_kprefs build/test_ktime build/test_png build/test_jpeg build/test_netproxy build/test_gif
+test: build/test_prims build/test_crypto build/test_bignum build/test_ecc build/test_rsa build/test_der build/test_x509 build/test_tls_wire build/test_tls_prf build/test_tls_aead build/test_tls build/test_tls_pins build/test_json build/test_http build/test_ws build/test_gateway build/test_rest build/test_model build/test_chain build/test_roots build/test_kprefs build/test_ktime build/test_png build/test_jpeg build/test_netproxy build/test_gif build/test_emoji
 	build/test_prims
 	build/test_crypto
 	build/test_bignum
@@ -239,6 +245,7 @@ test: build/test_prims build/test_crypto build/test_bignum build/test_ecc build/
 	build/test_jpeg
 	build/test_netproxy
 	build/test_gif
+	build/test_emoji
 
 # Per-primitive cost of the TLS data path (record ciphers, hashes, HMAC, X25519), for comparing before and
 # after a change on the same machine.

@@ -89,6 +89,8 @@ static KMs app_now_ms(void)
 - (void)closeChannelWindows;
 - (void)showImages:(id)sender;
 - (void)toggleInline:(id)sender;
+- (void)toggleEmoji:(id)sender;
+- (NSString *)findEmojiPack;
 - (void)applyInlineSetting;
 - (void)reloadAllMessages;
 - (void)closeImageWindows;
@@ -111,19 +113,21 @@ static KMs app_now_ms(void)
     imageNames = [[NSMutableDictionary alloc] init];
     thumbs = [[NSMutableDictionary alloc] init];
     thumbsAsked = [[NSMutableSet alloc] init];
+    emojiImages = [[NSMutableDictionary alloc] init];
     return self;
 }
 
 - (void)dealloc
 {
     [self endSession];
+    emoji_pack_close(emojiPack);
     trust_free(&trust);
     memset(&prefs, 0, sizeof(prefs));
     [loginController release];
     [mainController release];
     [channelWindows release];
     [dmController release];
-    [imageList release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release]; [emojiBase release];
+    [imageList release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release]; [emojiBase release]; [emojiImages release];
     [kallistiDir release]; [prefsPath release]; [rngSeedPath release];
     [entropyPanel release];
     [restHost release]; [gatewayURL release];
@@ -173,6 +177,8 @@ static KMs app_now_ms(void)
     [self addItem:@"Images in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
     [self addItem:@"Show Images Inline (Experimental)" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
     inlineItem = [m itemWithTitle:@"Show Images Inline (Experimental)"];
+    [self addItem:@"Show Emoji as Pictures" action:@selector(toggleEmoji:) key:@"" target:self toMenu:m];
+    emojiItem = [m itemWithTitle:@"Show Emoji as Pictures"];
     [self addItem:@"Check Certificate Dates" action:@selector(toggleDates:) key:@"" target:self toMenu:m];
     datesItem = [m itemWithTitle:@"Check Certificate Dates"];
 
@@ -243,6 +249,17 @@ static KMs app_now_ms(void)
     ssh_rng_load_seed([rngSeedPath cString]);
     SSTrace("random pool holds %d of %d bits", ssh_rng_credited(), SSH_RNG_MIN_BITS);
     if (ssh_rng_ready()) ssh_rng_save_seed([rngSeedPath cString]);
+
+    {
+        NSString *packPath = [self findEmojiPack];
+
+        if (packPath && [self loadEmojiPackFromPath:packPath]) {
+            SSTrace("emoji pictures: %d from %s", emoji_pack_count(emojiPack), SSCS(packPath));
+        } else {
+            SSTrace("emoji pictures: no pack found (emoji will show as ?)");
+        }
+        [self setEmojiPictures:prefs.emoji_pictures ? YES : NO];
+    }
 
     source = roots_load_default(&trust, ROOTS_SYSTEM_DIR, &count);
     SSTrace("trust store: %d certificates from %s", count,
@@ -583,6 +600,83 @@ static KMs app_now_ms(void)
 }
 
 - (BOOL)inlineImagesEnabled { return inlineImages; }
+
+/* ---------------------------------------------------------------- Unicode emoji */
+
+/* emoji.pack lives next to the program: in the bundle (wherever this system keeps resources) or beside the executable. */
+- (NSString *)findEmojiPack
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath], *res = [[NSBundle mainBundle] pathForResource:@"emoji" ofType:@"pack"];
+    NSString *cands[5];
+    int i;
+
+    if (res) return res;
+    cands[0] = [bundlePath stringByAppendingPathComponent:@"emoji.pack"];
+    cands[1] = [[bundlePath stringByAppendingPathComponent:@"Resources"] stringByAppendingPathComponent:@"emoji.pack"];
+    cands[2] = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"emoji.pack"];
+    cands[3] = [[fm currentDirectoryPath] stringByAppendingPathComponent:@"emoji.pack"];
+    cands[4] = @"app/emoji.pack";
+    for (i = 0; i < 5; i++) {
+        if (cands[i] && [fm fileExistsAtPath:cands[i]]) return cands[i];
+    }
+    return nil;
+}
+
+- (BOOL)loadEmojiPackFromPath:(NSString *)path
+{
+    EmojiPack *p = emoji_pack_open([path cString]);
+
+    if (p == NULL) return NO;
+    emoji_pack_close(emojiPack);
+    emojiPack = p;
+    [emojiImages removeAllObjects];
+    return YES;
+}
+
+- (BOOL)emojiPicturesEnabled { return prefs.emoji_pictures && emojiPack != NULL; }
+
+- (void)setEmojiPictures:(BOOL)on
+{
+    prefs.emoji_pictures = on ? 1 : 0;
+    [emojiItem setTitle:on ? @"Show Emoji as Text" : @"Show Emoji as Pictures"];
+    if (mainController) [self reloadAllMessages];
+}
+
+- (void)toggleEmoji:(id)sender
+{
+    if (emojiPack == NULL) {
+        NSRunAlertPanel(@"No emoji pictures", @"The emoji.pack file is missing from the application, so emoji cannot be drawn as pictures.", @"OK", nil, nil);
+        return;
+    }
+    [self setEmojiPictures:!prefs.emoji_pictures];
+    [self savePrefs];
+}
+
+/* ChannelPane's questions: the pack to scan with (NULL when off), and a picture per emoji key, made once. */
+- (EmojiPack *)emojiPack
+{
+    return prefs.emoji_pictures ? emojiPack : NULL;
+}
+
+- (NSImage *)unicodeEmojiImageForKey:(NSString *)key
+{
+    id v = [emojiImages objectForKey:key];
+    size_t n = 0;
+    unsigned char *tiff;
+
+    if (v != nil) return [v isKindOfClass:[NSImage class]] ? (NSImage *)v : nil;
+    tiff = emojiPack ? emoji_pack_tiff(emojiPack, [key cString], &n) : NULL;
+    if (tiff != NULL) {
+        NSImage *img = [[[NSImage alloc] initWithData:[NSData dataWithBytes:tiff length:n]] autorelease];
+
+        free(tiff);
+        [emojiImages setObject:(img ? (id)img : (id)@"") forKey:key];
+        return img;
+    }
+    [emojiImages setObject:@"" forKey:key];                                     /* no picture: do not try again */
+    return nil;
+}
 
 - (void)setEmojiBase:(NSString *)base
 {
