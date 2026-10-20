@@ -624,7 +624,7 @@ static void gateway_pump(KClient *kc, KMs now)
 
 /* The address to request: the attachment's own, plus the media proxy's format and size parameters. */
 static void fetch_url(char *out, size_t cap, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
-                      unsigned long max_h)
+                      unsigned long max_h, int flags)
 {
     char extra[96];
     unsigned long nw = w, nh = h;
@@ -640,9 +640,9 @@ static void fetch_url(char *out, size_t cap, const char *url, unsigned long w, u
         }
         if (nw < 1) nw = 1;
         if (nh < 1) nh = 1;
-        sprintf(extra, "format=png&width=%lu&height=%lu", nw, nh);
+        sprintf(extra, "format=%s&width=%lu&height=%lu", (flags & KC_FETCH_JPEG) ? "jpeg" : "png", nw, nh);
     } else {
-        strcpy(extra, "format=png");
+        strcpy(extra, (flags & KC_FETCH_JPEG) ? "format=jpeg" : "format=png");
     }
     if (strlen(url) + strlen(extra) + 2 >= cap) {
         out[0] = '\0';
@@ -659,6 +659,12 @@ int kc_fetch_image(KClient *kc, const char *url, unsigned long w, unsigned long 
 int kc_fetch_image_boxed(KClient *kc, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
                          unsigned long max_h, unsigned long tag)
 {
+    return kc_fetch_image_ex(kc, url, w, h, max_w, max_h, tag, 0);
+}
+
+int kc_fetch_image_ex(KClient *kc, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
+                      unsigned long max_h, unsigned long tag, int flags)
+{
     HttpUrl u;
 
     if (max_w < 1 || max_h < 1 || max_w > KC_IMAGE_MAX_W || max_h > KC_IMAGE_MAX_H) {
@@ -674,6 +680,7 @@ int kc_fetch_image_boxed(KClient *kc, const char *url, unsigned long w, unsigned
     kc->fq[kc->nfq].max_w = max_w;
     kc->fq[kc->nfq].max_h = max_h;
     kc->fq[kc->nfq].tag = tag;
+    kc->fq[kc->nfq].flags = flags;
     kc->nfq++;
     return 0;
 }
@@ -761,15 +768,19 @@ static void fetch_pump(KClient *kc, KMs now)
 
     if (kc->fphase == 0 && kc->nfq > 0 && kc->nimgs < KC_IMAGE_QUEUE) {
         copy_str(kc->forig, sizeof(kc->forig), kc->fq[0].url);
+        kc->fq_w_saved = kc->fq[0].w;
+        kc->fq_h_saved = kc->fq[0].h;
         kc->fmax_w = kc->fq[0].max_w;
         kc->fmax_h = kc->fq[0].max_h;
         kc->ftag = kc->fq[0].tag;
-        fetch_url(kc->furl, sizeof(kc->furl), kc->fq[0].url, kc->fq[0].w, kc->fq[0].h, kc->fmax_w, kc->fmax_h);
+        kc->fflags = kc->fq[0].flags;
+        fetch_url(kc->furl, sizeof(kc->furl), kc->fq[0].url, kc->fq[0].w, kc->fq[0].h, kc->fmax_w, kc->fmax_h, kc->fflags);
         for (i = 1; i < kc->nfq; i++) {
             kc->fq[i - 1] = kc->fq[i];
         }
         kc->nfq--;
         kc->fredirects = 0;
+        kc->fretried = 0;
         kc->fstarted = now;
         kc->fwall_start = kc->fwall_open = kc->fwall_done = wall_ms();
         kc->fbytes = 0;
@@ -797,7 +808,7 @@ static void fetch_pump(KClient *kc, KMs now)
             http_req_init(&kc->freq);
             if (http_req_begin(&kc->freq, "GET", u.path, u.host, u.port, u.tls) != 0 ||
                 http_req_header(&kc->freq, "User-Agent", kc->rest.user_agent) != 0 ||
-                http_req_header(&kc->freq, "Accept", "image/png") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
+                http_req_header(&kc->freq, "Accept", "image/png, image/jpeg") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
                 net_write(&kc->fconn, kc->freq.buf, kc->freq.len) != 0) {
                 fetch_failed(kc, "could not send the request");
                 return;
@@ -878,8 +889,19 @@ static void fetch_pump(KClient *kc, KMs now)
             kc->fwall_done = wall_ms();
             kc->fbytes = (unsigned long)kc->fresp.body_len;
             t0 = wall_ms();
-            dec = img_png_to_tiff(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, &tiff, &tl, &w, &h, &err);
+            dec = img_to_tiff(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, &tiff, &tl, &w, &h, &err);
             kc->fms_decode = wall_ms() - t0;
+            if (dec != 0 && (kc->fflags & KC_FETCH_JPEG) && !kc->fretried && strstr(err, "PNG or JPEG") != NULL) {
+                /* the proxy would not make a JPEG (it sent something else): ask for a PNG instead */
+                kc->fretried = 1;
+                kc->fflags = 0;
+                fetch_url(kc->furl, sizeof(kc->furl), kc->forig, kc->fq_w_saved, kc->fq_h_saved, kc->fmax_w, kc->fmax_h, 0);
+                http_req_free(&kc->freq);
+                http_resp_free(&kc->fresp);
+                net_close(&kc->fconn);
+                fetch_open(kc, now);
+                return;
+            }
             if (dec == 0) {
                 fetch_result(kc, 1, "", tiff, tl, w, h);
             } else {

@@ -713,6 +713,24 @@ static Channel *dm_from_message(Model *m, const char *cid, const JNode *author)
     return model_find_channel(m, cid);
 }
 
+static int ends_with_ci(const char *s, const char *suffix)
+{
+    size_t n = strlen(s), m = strlen(suffix), i;
+
+    if (n < m) {
+        return 0;
+    }
+    for (i = 0; i < m; i++) {
+        char a = s[n - m + i], b = suffix[i];
+
+        if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+        if (a != b) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Keeps the first few attachments' addresses, names and sizes, so an image can be fetched later. */
 static void parse_attachments(Message *msg, const JNode *json)
 {
@@ -743,6 +761,11 @@ static void parse_attachments(Message *msg, const JNode *json)
         t->width = int_of(a, "width", 0);
         t->height = int_of(a, "height", 0);
         t->is_image = is_image_attachment(a);
+        {
+            const char *ct = json_get_str(a, "content_type", "");
+
+            t->is_jpeg = strncmp(ct, "image/jpeg", 10) == 0 || ends_with_ci(t->name, ".jpg") || ends_with_ci(t->name, ".jpeg");
+        }
         n++;
     }
     msg->natt = n;

@@ -569,13 +569,13 @@ static KMs app_now_ms(void)
 }
 
 /* The thumbnail for an attachment address if it is on hand; otherwise nil and a download is started. */
-- (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h
+- (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h jpeg:(BOOL)isJpeg
 {
     id v = [thumbs objectForKey:url];
 
     if (v != nil) return [v isKindOfClass:[NSImage class]] ? (NSImage *)v : nil;
     if (kc && ![thumbsAsked containsObject:url] &&
-        kc_fetch_image_boxed(kc, [url cString], (unsigned long)w, (unsigned long)h, 320, 240, 1) == 0) {
+        kc_fetch_image_ex(kc, [url cString], (unsigned long)w, (unsigned long)h, 320, 240, 1, isJpeg ? KC_FETCH_JPEG : 0) == 0) {
         [thumbsAsked addObject:url];
     }
     return nil;
@@ -614,7 +614,8 @@ static KMs app_now_ms(void)
             label = [NSString stringWithFormat:@"[%s] %@: %@%@", hm, S(m->author), S(a->name),
                      (a->width > 0 && a->height > 0) ? [NSString stringWithFormat:@"  (%dx%d)", a->width, a->height] : @""];
             [list addObject:[[[ImageItem alloc] initWithLabel:label url:S(a->url) name:S(a->name)
-                                                        width:(unsigned long)a->width height:(unsigned long)a->height] autorelease]];
+                                                        width:(unsigned long)a->width height:(unsigned long)a->height
+                                                         jpeg:(a->is_jpeg ? YES : NO)] autorelease]];
         }
     }
     return list;
@@ -638,7 +639,8 @@ static KMs app_now_ms(void)
 
 - (void)openImageItem:(ImageItem *)item
 {
-    if (!kc || kc_fetch_image(kc, [item->url cString], item->width, item->height) != 0) {
+    if (!kc || kc_fetch_image_ex(kc, [item->url cString], item->width, item->height, KC_IMAGE_MAX_W, KC_IMAGE_MAX_H, 0,
+                                 item->jpeg ? KC_FETCH_JPEG : 0) != 0) {
         [mainController appendNotice:@"Too many pictures are loading; try again in a moment."];
         return;
     }

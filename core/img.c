@@ -3,6 +3,7 @@
 #include <string.h>
 #include "img.h"
 #include "png.h"
+#include "jpeg.h"
 
 static void put16(unsigned char *p, unsigned v) { p[0] = (unsigned char)(v >> 8); p[1] = (unsigned char)v; }
 static void put32(unsigned char *p, unsigned long v)
@@ -75,7 +76,7 @@ unsigned char *tiff_encode_rgb(const unsigned char *rgb, unsigned long width, un
     return out;
 }
 
-int img_png_to_tiff(const unsigned char *png, size_t n, unsigned long max_w, unsigned long max_h,
+int img_to_tiff(const unsigned char *data, size_t n, unsigned long max_w, unsigned long max_h,
                     unsigned char **tiff, size_t *tiff_len, unsigned long *w, unsigned long *h, const char **err)
 {
     PngImage im;
@@ -83,7 +84,16 @@ int img_png_to_tiff(const unsigned char *png, size_t n, unsigned long max_w, uns
     unsigned char *rgb;
 
     *tiff = NULL;
-    if (png_decode(png, n, &im, err) != 0) {
+    if (n >= 8 && memcmp(data, "\x89PNG\r\n\x1a\n", 8) == 0) {
+        if (png_decode(data, n, &im, err) != 0) {
+            return -1;
+        }
+    } else if (n >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff) {
+        if (jpeg_decode(data, n, &im, err) != 0) {
+            return -1;
+        }
+    } else {
+        *err = "the server did not send a PNG or JPEG picture";
         return -1;
     }
     if (max_w > 0 && im.width > max_w) {

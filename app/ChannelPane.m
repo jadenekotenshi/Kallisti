@@ -123,7 +123,8 @@ static NSColor *author_color(const char *name)
             NSImage *img;
 
             if (!m->att[i].is_image) continue;
-            img = [imageSource inlineImageForURL:S(m->att[i].url) width:m->att[i].width height:m->att[i].height];
+            img = [imageSource inlineImageForURL:S(m->att[i].url) width:m->att[i].width height:m->att[i].height
+                                           jpeg:(m->att[i].is_jpeg ? YES : NO)];
             if (img == nil) continue;
             [[messageText textStorage] appendAttributedString:ui_image_attachment(img)];
             [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];

@@ -36,6 +36,7 @@ typedef struct {
     char name[100];
     int width, height;           /* 0 if unknown */
     int is_image;                /* an image content type (or one with a size) */
+    int is_jpeg;                 /* a JPEG original: ask the media proxy for a JPEG (a tenth the bytes of a PNG) */
 } Attachment;
 
 typedef struct {

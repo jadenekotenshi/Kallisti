@@ -241,7 +241,7 @@ static void test_tiff(void)
     if (d == NULL) {
         return;
     }
-    CHECK(img_png_to_tiff(d, len, 0, 0, &tiff, &tl, &w, &h, &err) == 0 && w == 320 && h == 200);
+    CHECK(img_to_tiff(d, len, 0, 0, &tiff, &tl, &w, &h, &err) == 0 && w == 320 && h == 200);
     CHECK(tiff[0] == 'M' && tiff[1] == 'M' && tiff_u16(tiff + 2) == 42 && tiff_u32(tiff + 4) == 8);
     entries = tiff_u16(tiff + 8);
     CHECK(entries == 13);
@@ -257,11 +257,11 @@ static void test_tiff(void)
     free(tiff);
 
     /* shrunk by a whole factor until it fits: 320x200 into 100x100 is 4x smaller (80x50) */
-    CHECK(img_png_to_tiff(d, len, 100, 100, &tiff, &tl, &w, &h, &err) == 0 && w == 80 && h == 50 && tl == 192 + 80UL * 50 * 3);
+    CHECK(img_to_tiff(d, len, 100, 100, &tiff, &tl, &w, &h, &err) == 0 && w == 80 && h == 50 && tl == 192 + 80UL * 50 * 3);
     free(tiff);
-    CHECK(img_png_to_tiff(d, len, 1000, 100, &tiff, &tl, &w, &h, &err) == 0 && w == 160 && h == 100);
+    CHECK(img_to_tiff(d, len, 1000, 100, &tiff, &tl, &w, &h, &err) == 0 && w == 160 && h == 100);
     free(tiff);
-    CHECK(img_png_to_tiff((const unsigned char *)"nope", 4, 0, 0, &tiff, &tl, &w, &h, &err) != 0 && tiff == NULL);
+    CHECK(img_to_tiff((const unsigned char *)"nope", 4, 0, 0, &tiff, &tl, &w, &h, &err) != 0 && tiff == NULL);
     free(d);
 
     /* transparency is laid over white */
@@ -271,7 +271,7 @@ static void test_tiff(void)
         unsigned char *t2;
 
         CHECK(png_decode(d, len, &im, &err) == 0);
-        CHECK(img_png_to_tiff(d, len, 0, 0, &t2, &tl, &w, &h, &err) == 0 && w == 1 && h == 1);
+        CHECK(img_to_tiff(d, len, 0, 0, &t2, &tl, &w, &h, &err) == 0 && w == 1 && h == 1);
         {
             unsigned long a = im.rgba[3];
 

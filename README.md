@@ -70,9 +70,13 @@ before any OPENSTEP code:
      mentions. *Discord > New Direct Message...* opens one by user ID. A bot can only DM people who share a server
      with it and cannot list its DMs.
    - Pictures: messages show `[image: cat.png 800x600]`; *Discord > Images in This Channel...* lists them and
-     opens one in its own window. Kallisti asks Discord's media proxy for a resized PNG, decodes it itself
-     (every PNG type, interlacing, transparency over white), and gives AppKit an uncompressed TIFF, so no JPEG,
-     GIF or WebP decoder is needed anywhere. *Show Images Inline (Experimental)* draws thumbnails inside the log
+     opens one in its own window. Kallisti asks Discord's media proxy for a resized picture (a JPEG when the
+     original is a JPEG -- about a tenth the bytes of the PNG -- otherwise a PNG; if the proxy will not make a JPEG
+     it asks again for a PNG), decodes it itself and gives AppKit an uncompressed TIFF, so AppKit needs no decoder
+     and nothing is linked in. `core/png.c` reads every PNG type with interlacing and transparency. `core/jpeg.c`
+     reads baseline, extended and progressive Huffman JPEGs (any subsampling, restart intervals, grey) and uses
+     libjpeg's published integer IDCT, upsampling and colour arithmetic, so its output is bit-for-bit libjpeg's:
+     the 44 test pictures in `tests/jpg` (made by libjpeg through Pillow) must match libjpeg's own decode exactly. *Show Images Inline (Experimental)* draws thumbnails inside the log
      with `NSTextAttachment`, which is untested on OPENSTEP; leave it off if the log misbehaves.
 
 **v0.1 scope:** connect, list servers and their text channels, read live messages, send messages -- plus the
@@ -80,7 +84,7 @@ three additions above. No reactions, embeds beyond plain text, or voice. Known l
 Basic Multilingual Plane (most emoji) show as `?`; threads and voice channels are not listed; channels are not
 filtered by the bot's permissions (opening one it cannot read says so in the message view); animated GIFs show
 their first frame; user-token mode is untested (no intents are sent for it and nothing else differs). Decoding a
-large picture takes seconds on a 68040.
+large picture takes seconds on a 68040; arithmetic-coded, 12-bit, lossless and CMYK JPEGs are refused.
 
 ## Logging in: bot tokens and user tokens
 

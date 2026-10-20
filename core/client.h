@@ -43,6 +43,7 @@ typedef struct {
 #define KC_IMAGE_MAX_W 800UL        /* pictures are fetched at most this large (Discord resizes them for us) */
 #define KC_IMAGE_MAX_H 600UL
 #define KC_IMAGE_QUEUE 4
+#define KC_FETCH_JPEG 1             /* ask the media proxy for a JPEG instead of a PNG (for photographs) */
 #define KC_IMAGE_BODY_MAX (12L * 1024L * 1024L)
 
 /* A fetched picture, ready for AppKit: an uncompressed TIFF. */
@@ -93,7 +94,7 @@ typedef struct {
     KMs gconnect_at, gphase_at;
 
     /* picture downloads (one at a time, each on a connection of its own) */
-    struct { char url[512]; unsigned long w, h, max_w, max_h, tag; } fq[KC_IMAGE_QUEUE];
+    struct { char url[512]; unsigned long w, h, max_w, max_h, tag; int flags; } fq[KC_IMAGE_QUEUE];
     int nfq;
     KImage imgs[KC_IMAGE_QUEUE];
     int nimgs;
@@ -104,6 +105,8 @@ typedef struct {
     char furl[512];              /* the address being fetched now (after redirects) */
     char forig[512];             /* ... and the one that was asked for */
     unsigned long fmax_w, fmax_h, ftag;
+    int fflags, fretried;
+    unsigned long fq_w_saved, fq_h_saved;      /* the size asked for, kept for a retry in another format */
     int fredirects;
     KMs fstarted;
     unsigned long fwall_start, fwall_open, fwall_done, fbytes, fms_decode;
@@ -136,6 +139,9 @@ int kc_fetch_image(KClient *kc, const char *url, unsigned long w, unsigned long 
 /* The same with a size limit of your own (e.g. a thumbnail) and a tag that comes back in the KImage. */
 int kc_fetch_image_boxed(KClient *kc, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
                          unsigned long max_h, unsigned long tag);
+/* ... and KC_FETCH_* flags. Whichever format arrives (PNG or JPEG) is decoded. */
+int kc_fetch_image_ex(KClient *kc, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
+                      unsigned long max_h, unsigned long tag, int flags);
 /* One finished download (success or failure). The caller owns out->tiff. */
 int kc_next_image(KClient *kc, KImage *out);
 

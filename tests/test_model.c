@@ -437,6 +437,7 @@ static void test_attachments(void)
           msg->att[0].width == 800 && msg->att[0].height == 600 && strcmp(msg->att[0].name, "cat.png") == 0);
     CHECK(strcmp(msg->att[1].url, "https://cdn.example/a/notes.txt") == 0 && !msg->att[1].is_image);
     CHECK(msg->att[2].is_image && msg->att[2].width == 10);
+    CHECK(!msg->att[0].is_jpeg && !msg->att[1].is_jpeg && msg->att[2].is_jpeg);          /* pic.jpg: by its extension */
     /* a message without attachments has none, and an over-long address is dropped rather than cut */
     dispatch(m, "MESSAGE_CREATE", "{\"id\":\"11\",\"channel_id\":\"201\",\"content\":\"plain\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}");
     CHECK(model_find_channel(m, "201")->msgs[1].att == NULL && model_find_channel(m, "201")->msgs[1].natt == 0);

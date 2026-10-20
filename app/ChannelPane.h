@@ -26,7 +26,7 @@
 - (void)modelChanged:(const ModelChange *)change;
 - (void)appendNotice:(NSString *)text;        /* a grey line at the end of the log */
 - (void)focusInput;
-/* Pictures drawn inside the log (experimental): `source` answers -inlineImageForURL:width:height:. */
+/* Pictures drawn inside the log (experimental): `source` answers -inlineImageForURL:width:height:jpeg:. */
 - (void)setImageSource:(id)source showInline:(BOOL)showInline;
 - (NSString *)messageString;                  /* the log's text, for the tests */
 - (void)typeText:(NSString *)text;            /* as if typed and Return pressed, for the tests */
@@ -39,5 +39,5 @@
 @interface NSObject (ChannelPaneImageSource)
 /* The thumbnail for an attachment address if it is on hand; otherwise nil, and the source starts fetching it and
  * will have the pane draw itself again when it arrives. */
-- (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h;
+- (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h jpeg:(BOOL)isJpeg;
 @end
