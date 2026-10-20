@@ -22,4 +22,11 @@
 #define NSOffState 0
 #endif
 
+/* OPENSTEP 4.2 has no NSDragOperation type: the drag-destination methods return an unsigned int there, and "copy" is 1. */
+#ifdef OPENSTEP
+typedef unsigned int KDragOp;
+#else
+typedef NSDragOperation KDragOp;
+#endif
+
 #endif

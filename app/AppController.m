@@ -690,7 +690,7 @@ static KMs app_now_ms(void)
         } else if (stat([path cString], &st) != 0) {
             [target appendNotice:[NSString stringWithFormat:@"Cannot find %@.", [path lastPathComponent]]];
             ok = NO;
-        } else if (!S_ISREG(st.st_mode)) {
+        } else if ((st.st_mode & S_IFMT) != S_IFREG) {
             [target appendNotice:[NSString stringWithFormat:@"%@ is a folder or special file; only plain files can be sent.", [path lastPathComponent]]];
             ok = NO;
         } else if ((long)st.st_size > REST_MAX_UPLOAD || total + (long)st.st_size > REST_MAX_UPLOAD) {

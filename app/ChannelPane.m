@@ -24,6 +24,9 @@
 }
 @end
 
+/* "copy" is the bit 1 in NSDragOperation (OPENSTEP 4.2 has no such type: see KDragOp in Compat.h). */
+#define DROP_COPY 1U
+
 /* The paths on a drag's pasteboard, or nil if it carries no files. */
 static NSArray *dropped_files(id sender)
 {
@@ -44,13 +47,13 @@ static NSArray *dropped_files(id sender)
 
 @implementation DropTextView
 - (void)setPane:(ChannelPane *)p { pane = p; }
-- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
+- (KDragOp)draggingEntered:(id <NSDraggingInfo>)sender
 {
-    return dropped_files(sender) != nil ? NSDragOperationCopy : [super draggingEntered:sender];
+    return dropped_files(sender) != nil ? DROP_COPY : [super draggingEntered:sender];
 }
-- (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)sender
+- (KDragOp)draggingUpdated:(id <NSDraggingInfo>)sender
 {
-    return dropped_files(sender) != nil ? NSDragOperationCopy : [super draggingUpdated:sender];
+    return dropped_files(sender) != nil ? DROP_COPY : [super draggingUpdated:sender];
 }
 - (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)sender
 {

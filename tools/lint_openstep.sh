@@ -36,6 +36,8 @@ check "NSAlert class / sheets"                              '\bNSAlert\b|beginSh
 check "NSApplicationMain"                                   'NSApplicationMain'                    $OBJC
 check "-addObjectsFromArray shorthands / NSArray subscripting" '\[[a-zA-Z_]+ (objectAtIndexedSubscript|containsString|hasPrefix:)' $OBJC
 check "NSLog with %ld/%lu (LP64 formats)"                   '%l[du]'                               $OBJC
+check "S_ISREG/S_ISDIR (not in OPENSTEP 4.2: test st_mode & S_IFMT)"    '\bS_IS(REG|DIR|LNK)\b'  core/*.c app/*.m
+check "NSDragOperation (no such type in OPENSTEP 4.2: use unsigned int)" 'NSDragOperation'  app/*.m
 
 check "floor/ceil/strdup in app code (implicit decl. is silently wrong for double-returning libm; strdup is not ANSI)" '\b(floor|ceil|strdup)[[:space:]]*\(' app/*.m
 
