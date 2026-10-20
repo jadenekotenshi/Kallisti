@@ -18,6 +18,7 @@
 #ifndef KALLISTI_MODEL_H
 #define KALLISTI_MODEL_H
 
+#include "emoji.h"
 #include <stddef.h>
 #include "gateway.h"
 #include "json.h"
@@ -35,6 +36,7 @@ enum { CH_TEXT = 0, CH_DM = 1, CH_GROUP_DM = 3, CH_CATEGORY = 4, CH_ANNOUNCEMENT
 
 typedef struct {
     char url[480];               /* where to fetch it: Discord's media proxy URL if it sent one */
+    char dl_url[480];            /* Discord's own address of the file, for saving it ("" if none: use url) */
     char name[100];
     int width, height;           /* 0 if unknown */
     int is_image;                /* an image content type (or one with a size) */
@@ -148,6 +150,12 @@ void model_ingest_private_channel(Model *m, const JNode *chan);
 Guild *model_find_guild(Model *m, const char *id);
 Channel *model_find_channel(Model *m, const char *channel_id);
 Message *model_find_message(Channel *c, const char *message_id);
+
+/* What to put on a reaction request for the emoji a person typed (out: the emoji in UTF-8, or "name:id" for a custom one).
+ * `text` may be: an emoji; ":shortcode:" (looked up in `pack`, which may be NULL); ":name:" of a custom emoji seen in the
+ * channel c (in a message's text or as a reaction; c may be NULL); a pasted "<:name:id>" or "<a:name:id>"; or "name:id".
+ * Returns 0, or -1 if it is none of those. */
+int model_resolve_reaction(const Channel *c, const EmojiPack *pack, const char *text, char *out, size_t cap);
 
 void model_mark_read(Model *m, const char *channel_id);
 int model_next_change(Model *m, ModelChange *out);

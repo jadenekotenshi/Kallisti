@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../core/emoji.h"
+#include "../core/model.h"
 #include "../core/sha2.h"
 #include "test.h"
 
@@ -386,6 +387,20 @@ static void test_fuzz(void)
     CHECK(1);
 }
 
+static void test_resolve(void)
+{
+    char out[64];
+
+    CHECK(model_resolve_reaction(NULL, pack, ":thumbsup:", out, sizeof(out)) == 0 && strcmp(out, "\xf0\x9f\x91\x8d") == 0);
+    CHECK(model_resolve_reaction(NULL, pack, ":THUMBSUP:", out, sizeof(out)) == 0 && strcmp(out, "\xf0\x9f\x91\x8d") == 0);
+    CHECK(model_resolve_reaction(NULL, pack, ":notanemojiname:", out, sizeof(out)) == -1);
+    CHECK(model_resolve_reaction(NULL, pack, "\xf0\x9f\x91\x8d", out, sizeof(out)) == 0 && strcmp(out, "\xf0\x9f\x91\x8d") == 0);
+    CHECK(model_resolve_reaction(NULL, pack, "\xe2\x9d\xa4\xef\xb8\x8f", out, sizeof(out)) == 0);       /* a red heart with its selector */
+    CHECK(model_resolve_reaction(NULL, pack, "\xf0\x9f\x91\x8d\xf0\x9f\x91\x8d", out, sizeof(out)) == -1);   /* two emoji are not one */
+    CHECK(model_resolve_reaction(NULL, pack, "a\xf0\x9f\x91\x8d", out, sizeof(out)) == -1 && model_resolve_reaction(NULL, pack, "hello", out, sizeof(out)) == -1);
+    CHECK(model_resolve_reaction(NULL, pack, "x", out, sizeof(out)) == -1);
+}
+
 int main(void)
 {
     pack = emoji_pack_open("app/emoji.pack");
@@ -398,6 +413,7 @@ int main(void)
     test_scanning();
     test_names();
     test_every_key();
+    test_resolve();
     test_fuzz();
     emoji_pack_close(pack);
     TEST_DONE("emoji");

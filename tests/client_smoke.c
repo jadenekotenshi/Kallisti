@@ -43,6 +43,7 @@ typedef struct {
     char image_err[8][160];
     unsigned long image_w[8], image_h[8];
     char image_url[8][512];
+    unsigned long image_len[8], image_sum[8];
 } Seen;
 
 static void drain_events(KClient *kc, Seen *s)
@@ -71,6 +72,15 @@ static void drain_events(KClient *kc, Seen *s)
             s->image_w[s->nimages] = im.width;
             s->image_h[s->nimages] = im.height;
             strcpy(s->image_url[s->nimages], im.url);
+            s->image_len[s->nimages] = (unsigned long)im.tiff_len;
+            s->image_sum[s->nimages] = 0;
+            if (im.tiff != NULL && im.tiff_len < 200000UL) {
+                size_t k;
+
+                for (k = 0; k < im.tiff_len; k++) {
+                    s->image_sum[s->nimages] = s->image_sum[s->nimages] * 31UL + im.tiff[k];
+                }
+            }
             s->nimages++;
         }
         kc_image_free(&im);
@@ -184,6 +194,60 @@ static int count_text(KClient *kc, const char *text)
         }
     }
     return n;
+}
+
+static int c_has_reactme(KClient *kc, Seen *s)
+{
+    Channel *c = model_find_channel(&kc->model, "200");
+    int i;
+
+    for (i = 0; c != NULL && i < c->nmsgs; i++) {
+        if (strcmp(c->msgs[i].text, "reactme") == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int react_count(KClient *kc)
+{
+    Channel *c = model_find_channel(&kc->model, "200");
+    int i;
+
+    for (i = 0; c != NULL && i < c->nmsgs; i++) {
+        if (strcmp(c->msgs[i].text, "reactme") == 0) {
+            return c->msgs[i].nreact;
+        }
+    }
+    return -1;
+}
+static int c_two_reacts(KClient *kc, Seen *s) { return react_count(kc) == 2; }
+static int c_one_react(KClient *kc, Seen *s) { return react_count(kc) == 1; }
+
+static int c_reacts(KClient *kc, Seen *s)
+{
+    Channel *c = model_find_channel(&kc->model, "200");
+    int i;
+
+    for (i = 0; c != NULL && i < c->nmsgs; i++) {
+        if (strcmp(c->msgs[i].text, "reactme") == 0) {
+            return c->msgs[i].nreact;
+        }
+    }
+    return 0;
+}
+
+static Message *find_text(KClient *kc, const char *text)
+{
+    Channel *c = model_find_channel(&kc->model, "200");
+    int i;
+
+    for (i = 0; c != NULL && i < c->nmsgs; i++) {
+        if (strcmp(c->msgs[i].text, text) == 0) {
+            return &c->msgs[i];
+        }
+    }
+    return NULL;
 }
 
 static void configure(KClient *kc, int port, int tls, const TrustStore *ts)
@@ -408,6 +472,51 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(run_until(&kc, &seen, c_images1, 15000));
         CHECK(seen.image_ok[0] && kc.fopens >= 3 && kc.fopens <= 4);
         CHECK(kc_fetch_image(&kc, "ftp://nope/x.png", 0, 0) == -1 && kc_fetch_image(&kc, "garbage", 0, 0) == -1);
+
+        /* a download: the bytes exactly as sent, from the address exactly as given (even with a format= in it) */
+        seen.nimages = 0;
+        sprintf(u, "%s/file.bin?sig=zz&format=png", base);
+        CHECK(kc_fetch_file(&kc, u, 11) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        {
+            unsigned long sum = 0;
+            int i;
+
+            for (i = 0; i < 70000; i++) {
+                sum = sum * 31UL + (unsigned long)((i * 7 + i / 256) & 255);
+            }
+            CHECK(seen.image_ok[0] && seen.image_tag[0] == 11 && seen.image_len[0] == 70000UL);
+            CHECK(seen.image_sum[0] == sum);
+        }
+    }
+
+    /* reactions: put on and taken off with REST, shown through the gateway's events; a refusal is an error */
+    {
+        Message *rm;
+        char mid[24];
+
+        CHECK(kc_send_message(&kc, "200", "reactme") == 0);
+        CHECK(run_until(&kc, &seen, c_has_reactme, 15000));
+        rm = find_text(&kc, "reactme");
+        CHECK(rm != NULL);
+        strcpy(mid, rm != NULL ? rm->id : "1");
+        CHECK(kc_react(&kc, "200", mid, "\xf0\x9f\x91\x8d", 0) == 0);
+        CHECK(run_until(&kc, &seen, c_reacts, 15000));
+        rm = find_text(&kc, "reactme");
+        CHECK(rm != NULL && rm->nreact == 1 && rm->react[0].count == 1 && rm->react[0].me && strcmp(rm->react[0].name, "\xf0\x9f\x91\x8d") == 0);
+        CHECK(kc_react(&kc, "200", mid, "blobcat:555", 0) == 0);
+        CHECK(run_until(&kc, &seen, c_two_reacts, 15000));
+        rm = find_text(&kc, "reactme");
+        CHECK(rm != NULL && rm->nreact == 2 && strcmp(rm->react[1].id, "555") == 0 && strcmp(rm->react[1].name, "blobcat") == 0);
+        CHECK(kc_react(&kc, "200", mid, "\xf0\x9f\x91\x8d", 1) == 0);
+        CHECK(run_until(&kc, &seen, c_one_react, 15000));
+        rm = find_text(&kc, "reactme");
+        CHECK(rm != NULL && rm->nreact == 1 && strcmp(rm->react[0].id, "555") == 0);
+        seen.nerrors = 0;
+        CHECK(kc_react(&kc, "200", mid, "\xf0\x9f\x98\x88", 0) == 0);              /* the server refuses this one */
+        CHECK(run_until(&kc, &seen, c_error1, 15000));
+        CHECK(strstr(seen.errors[0], "Missing Permissions") != NULL);
+        CHECK(kc_react(&kc, "200", mid, "", 0) < 0 && kc_react(&kc, "200", "abc", "x", 0) < 0 && kc_react(&kc, "bad", mid, "x", 0) < 0);
     }
 
     /* the server tells us to reconnect: we resume and get what we missed */

@@ -122,6 +122,13 @@ async def rest_conn(reader, writer):
                 elif path.startswith('/img/emoji/'):    # custom emoji pictures
                     writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(EMOJI)).encode() + EMOJI)
                     await writer.drain()
+                elif path == '/img/file.bin':           # a download: handed back untouched, and the address must be as given
+                    if query != 'sig=zz&format=png':
+                        await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'the address was changed: ' + query})
+                    else:
+                        data = bytes((i * 7 + i // 256) & 255 for i in range(70000))
+                        writer.write(('HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n' % len(data)).encode() + data)
+                        await writer.drain()
                 elif path == '/img/plainfetch':        # an outside site: it must get the address untouched
                     if query != 'token=abc':
                         await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'the address was changed: ' + query})
@@ -172,6 +179,21 @@ async def rest_conn(reader, writer):
                 await reply(writer, HTTPStatus.FORBIDDEN, {'message': 'Missing Access', 'code': 50001})
             elif method == 'GET' and path == '/api/v10/channels/900/messages':
                 await reply(writer, HTTPStatus.OK, [])
+            elif method in ('PUT', 'DELETE') and '/reactions/' in path and path.endswith('/@me'):
+                import urllib.parse
+                parts = path.split('/')                 # '', api, v10, channels, CID, messages, MID, reactions, EMOJI, @me
+                cid, mid, emoji = parts[4], parts[6], urllib.parse.unquote(parts[8])
+                state.setdefault('reacts', []).append((method, emoji))
+                if emoji == '\U0001F608':
+                    await reply(writer, HTTPStatus.FORBIDDEN, {'message': 'Missing Permissions', 'code': 50013})
+                else:
+                    writer.write(b'HTTP/1.1 204 No Content\r\n\r\n')
+                    await writer.drain()
+                    em = {'id': None, 'name': emoji}
+                    if ':' in emoji:
+                        em = {'id': emoji.split(':')[1], 'name': emoji.split(':')[0]}
+                    await broadcast('MESSAGE_REACTION_ADD' if method == 'PUT' else 'MESSAGE_REACTION_REMOVE',
+                                    {'user_id': '42', 'channel_id': cid, 'message_id': mid, 'emoji': em})
             elif method == 'POST' and path == '/api/v10/users/@me/channels':
                 rid = json.loads(body)['recipient_id']
                 if rid == '666':
@@ -206,6 +228,13 @@ async def rest_conn(reader, writer):
                                               'proxy_url': '%s://localhost:%d/img/cat.png?ex=1&hm=abc' % (SCHEME_HTTP, PORT),
                                               'width': 300, 'height': 200, 'content_type': 'image/png'}]
                         await broadcast('MESSAGE_CREATE', pm)
+                    if content == 'savefile':
+                        state['next_id'] += 1
+                        fm = msg(state['next_id'], 'a file', author='7', name='someone')
+                        fm['attachments'] = [{'id': '2', 'filename': 'notes.bin', 'size': 70000,
+                                              'url': '%s://localhost:%d/img/file.bin?sig=zz&format=png' % (SCHEME_HTTP, PORT),
+                                              'proxy_url': 'https://media.invalid/never-used', 'content_type': 'application/octet-stream'}]
+                        await broadcast('MESSAGE_CREATE', fm)
                     if content == 'uemoji':
                         state['next_id'] += 1
                         await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'hi \U0001F600 \u2764\ufe0f \U0001F44D\U0001F3FD bye', author='7', name='someone'))

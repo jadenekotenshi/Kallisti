@@ -37,7 +37,7 @@
 /* queueing errors (a call's id is always positive) */
 enum { REST_E_BAD = -1, REST_E_TOO_LONG = -2, REST_E_FULL = -3 };
 
-enum { REST_ME = 1, REST_GATEWAY_BOT, REST_GUILDS, REST_CHANNELS, REST_MESSAGES, REST_POST_MESSAGE, REST_CREATE_DM };
+enum { REST_ME = 1, REST_GATEWAY_BOT, REST_GUILDS, REST_CHANNELS, REST_MESSAGES, REST_POST_MESSAGE, REST_CREATE_DM, REST_REACT };
 
 typedef struct {
     int used;
@@ -45,8 +45,8 @@ typedef struct {
     int kind;
     int is_get;
     char method[8];
-    char path[128];              /* below the API prefix, with the query */
-    char route[136];             /* the rate-limit key: method and path without the query */
+    char path[256];              /* below the API prefix, with the query */
+    char route[264];             /* the rate-limit key: method and path without the query */
     char *body;
     size_t body_len;
     int attempts;
@@ -57,7 +57,7 @@ typedef struct {
 
 typedef struct {
     int used;
-    char route[136];
+    char route[264];
     long remaining;
     KMs reset_at;
     unsigned long stamp;
@@ -110,6 +110,9 @@ long rest_get_channels(RestClient *rc, const char *guild_id);
 long rest_get_messages(RestClient *rc, const char *channel_id, int limit, const char *before);
 /* content is UTF-8, 1..2000 characters, not only whitespace. */
 long rest_post_message(RestClient *rc, const char *channel_id, const char *content);
+/* Puts our reaction on a message (PUT .../reactions/{emoji}/@me), or removes it (remove != 0, DELETE). `emoji` is UTF-8:
+ * the emoji itself, or "name:id" for a custom one; it is percent-encoded here. */
+long rest_react(RestClient *rc, const char *channel_id, const char *message_id, const char *emoji, int remove);
 /* Opens (or finds) the direct-message channel with a user: POST /users/@me/channels. The reply is a channel
  * object. A bot can only do this for people it shares a server with. */
 long rest_create_dm(RestClient *rc, const char *user_id);

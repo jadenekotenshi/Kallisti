@@ -185,6 +185,38 @@ static void test_create_dm(void)
     rest_free(&rc);
 }
 
+static void test_react(void)
+{
+    RestClient rc;
+    RestResult res;
+    char t[2048];
+    long id;
+
+    rest_init(&rc, "tok", 1);
+    CHECK(rest_react(&rc, "x", "2", "a", 0) == REST_E_BAD && rest_react(&rc, "1", "", "a", 0) == REST_E_BAD &&
+          rest_react(&rc, "1", "2", "", 0) == REST_E_BAD && rest_react(&rc, "1", "2", NULL, 0) == REST_E_BAD &&
+          rest_react(&rc, "1", "2", "\xff", 0) == REST_E_BAD);
+    id = rest_react(&rc, "11", "22", "\xf0\x9f\x91\x8d", 0);
+    CHECK(id > 0 && next_req(&rc, 0, t, sizeof(t)) == id);
+    CHECK(STARTS(t, "PUT /api/v10/channels/11/messages/22/reactions/%F0%9F%91%8D/@me HTTP/1.1\r\n"));
+    CHECK(has(t, "Content-Length: 0\r\n"));
+    answer(&rc, 0, 204, "", "");
+    CHECK(rest_next_result(&rc, &res) && res.ok && res.kind == REST_REACT && res.status == 204);
+    id = rest_react(&rc, "11", "22", "blob cat:555", 1);                  /* a custom emoji: name:id, encoded */
+    CHECK(id > 0 && next_req(&rc, 0, t, sizeof(t)) == id);
+    CHECK(STARTS(t, "DELETE /api/v10/channels/11/messages/22/reactions/blob%20cat%3A555/@me HTTP/1.1\r\n"));
+    answer(&rc, 0, 403, "", "{\"message\":\"Missing Permissions\",\"code\":50013}");
+    CHECK(rest_next_result(&rc, &res) && !res.ok && strstr(res.error, "Missing Permissions") != NULL);
+    {
+        char longemoji[200];
+
+        memset(longemoji, 'a', sizeof(longemoji) - 1);
+        longemoji[sizeof(longemoji) - 1] = '\0';
+        CHECK(rest_react(&rc, "11", "22", longemoji, 0) == REST_E_TOO_LONG);
+    }
+    rest_free(&rc);
+}
+
 static void test_errors(void)
 {
     RestClient rc;
@@ -532,6 +564,7 @@ int main(void)
     test_queueing();
     test_requests();
     test_create_dm();
+    test_react();
     test_errors();
     test_429();
     test_buckets_and_global();

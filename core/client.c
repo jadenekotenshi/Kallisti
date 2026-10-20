@@ -316,6 +316,12 @@ static void handle_result(KClient *kc, const RestResult *res, KMs now)
             emit(kc, KE_ERROR, kc->state, msg);
         }
         break;
+    case REST_REACT:
+        if (!res->ok) {
+            sprintf(msg, "Reaction not changed: %.200s", res->error);
+            emit(kc, KE_ERROR, kc->state, msg);
+        }
+        break;
     case REST_CREATE_DM:
         if (res->ok) {
             model_ingest_private_channel(&kc->model, res->body);
@@ -707,7 +713,7 @@ static void fetch_url(const KClient *kc, char *out, size_t cap, const char *url,
     char extra[96];
     unsigned long nw = w, nh = h;
 
-    if ((flags & KC_FETCH_RAW) || !takes_resize_params(kc, url)) {
+    if ((flags & (KC_FETCH_RAW | KC_FETCH_FILE)) || !takes_resize_params(kc, url)) {
         if (strlen(url) >= cap) {
             out[0] = '\0';
         } else {
@@ -895,12 +901,12 @@ static int fetch_send(KClient *kc)
     http_req_init(&kc->freq);
     if (http_req_begin(&kc->freq, "GET", u.path, u.host, u.port, u.tls) != 0 ||
         http_req_header(&kc->freq, "User-Agent", kc->rest.user_agent) != 0 ||
-        http_req_header(&kc->freq, "Accept", "image/png, image/jpeg, image/gif") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
+        http_req_header(&kc->freq, "Accept", (kc->fflags & KC_FETCH_FILE) ? "*/*" : "image/png, image/jpeg, image/gif") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
         net_write(&kc->fconn, kc->freq.buf, kc->freq.len) != 0) {
         fetch_failed(kc, "could not send the request");
         return -1;
     }
-    http_resp_init(&kc->fresp, (size_t)KC_IMAGE_BODY_MAX, 0);
+    http_resp_init(&kc->fresp, (kc->fflags & KC_FETCH_FILE) ? (size_t)KC_FILE_BODY_MAX : (size_t)KC_IMAGE_BODY_MAX, 0);
     kc->fgot = 0;
     kc->fphase = 2;
     return 0;
@@ -968,7 +974,7 @@ static void fetch_pump(KClient *kc, KMs now)
     if (kc->fphase == 0) {
         return;
     }
-    if (KMS_SINCE(now, kc->fstarted) > 60000L) {
+    if (KMS_SINCE(now, kc->fstarted) > ((kc->fflags & KC_FETCH_FILE) ? 600000L : 60000L)) {
         fetch_failed(kc, "timed out");
         return;
     }
@@ -1063,6 +1069,16 @@ static void fetch_pump(KClient *kc, KMs now)
             kc->fwall_done = wall_ms();
             kc->fbytes = (unsigned long)kc->fresp.body_len;
             t0 = wall_ms();
+            if (kc->fflags & KC_FETCH_FILE) {            /* a download: the bytes as they came */
+                tiff = (unsigned char *)malloc(kc->fresp.body_len > 0 ? kc->fresp.body_len : 1);
+                if (tiff == NULL) {
+                    fetch_failed_keep(kc, "out of memory", keep);
+                    return;
+                }
+                memcpy(tiff, kc->fresp.body, kc->fresp.body_len);
+                fetch_result(kc, 1, "", tiff, kc->fresp.body_len, 0, 0, keep, NULL);
+                return;
+            }
             if ((kc->fflags & KC_FETCH_ANIM) && kc->fresp.body_len >= 6 &&
                 (memcmp(kc->fresp.body, "GIF87a", 6) == 0 || memcmp(kc->fresp.body, "GIF89a", 6) == 0)) {
                 ImgAnim an;
@@ -1144,6 +1160,22 @@ int kc_send_message(KClient *kc, const char *channel_id, const char *text)
         return (int)id;
     }
     pend_add(kc, id, REST_POST_MESSAGE, channel_id);
+    return 0;
+}
+
+int kc_fetch_file(KClient *kc, const char *url, unsigned long tag)
+{
+    return kc_fetch_image_ex(kc, url, 0, 0, 1, 1, tag, KC_FETCH_FILE);
+}
+
+int kc_react(KClient *kc, const char *channel_id, const char *message_id, const char *emoji, int remove)
+{
+    long id = rest_react(&kc->rest, channel_id, message_id, emoji, remove);
+
+    if (id <= 0) {
+        return (int)id;
+    }
+    pend_add(kc, id, REST_REACT, channel_id);
     return 0;
 }
 

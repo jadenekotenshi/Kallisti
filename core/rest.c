@@ -262,6 +262,38 @@ long rest_post_message(RestClient *rc, const char *channel_id, const char *conte
     return id;
 }
 
+long rest_react(RestClient *rc, const char *channel_id, const char *message_id, const char *emoji, int remove)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    char path[256], enc[96];
+    const unsigned char *p;
+    size_t n = 0;
+
+    if (!valid_id(channel_id) || !valid_id(message_id) || emoji == NULL || emoji[0] == '\0' ||
+        !ws_utf8_valid((const unsigned char *)emoji, strlen(emoji))) {
+        return REST_E_BAD;
+    }
+    for (p = (const unsigned char *)emoji; *p != '\0'; p++) {
+        if ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || *p == '-' || *p == '.' ||
+            *p == '_' || *p == '~') {
+            if (n + 1 >= sizeof(enc)) {
+                return REST_E_TOO_LONG;
+            }
+            enc[n++] = (char)*p;
+        } else {
+            if (n + 3 >= sizeof(enc)) {
+                return REST_E_TOO_LONG;
+            }
+            enc[n++] = '%';
+            enc[n++] = hex[*p >> 4];
+            enc[n++] = hex[*p & 15];
+        }
+    }
+    enc[n] = '\0';
+    sprintf(path, "/channels/%s/messages/%s/reactions/%s/@me", channel_id, message_id, enc);
+    return queue_job(rc, REST_REACT, remove ? "DELETE" : "PUT", path, NULL);
+}
+
 long rest_create_dm(RestClient *rc, const char *user_id)
 {
     JWriter w;

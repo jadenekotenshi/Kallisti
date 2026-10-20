@@ -46,6 +46,8 @@ typedef struct {
 #define KC_FETCH_JPEG 1             /* ask the media proxy for a JPEG instead of a PNG (for photographs) */
 #define KC_FETCH_ANIM 4             /* an animated GIF: ask for the GIF itself (resized), and decode its frames */
 #define KC_FETCH_RAW 2              /* fetch the address exactly as given (an emoji's own, which carries its size) */
+#define KC_FETCH_FILE 8             /* a download: the address as given, the body handed back untouched (in `tiff`) */
+#define KC_FILE_BODY_MAX (32L * 1024L * 1024L)
 #define KC_IMAGE_BODY_MAX (12L * 1024L * 1024L)
 #define KC_ANIM_MAX_FRAMES 100
 #define KC_ANIM_MAX_PIXELS 3000000UL   /* frames x screen size, before shrinking: bounds the memory a GIF can take */
@@ -161,6 +163,14 @@ int kc_fetch_image_ex(KClient *kc, const char *url, unsigned long w, unsigned lo
 /* One finished download (success or failure). The caller owns what is in it and releases it with kc_image_free(). */
 int kc_next_image(KClient *kc, KImage *out);
 void kc_image_free(KImage *im);
+
+/* Downloads a file untouched (up to KC_FILE_BODY_MAX bytes): the same queue and result as pictures, with the bytes
+ * in KImage.tiff / tiff_len and nothing decoded. Returns 0, or -1 if the queue is full or the address is no good. */
+int kc_fetch_file(KClient *kc, const char *url, unsigned long tag);
+
+/* Adds our reaction to a message, or (remove != 0) takes it back. `emoji` is the emoji itself in UTF-8, or "name:id" for a
+ * custom one. Returns 0 or a REST_E_* code; a failure comes back as a KE_ERROR, success as the gateway's reaction event. */
+int kc_react(KClient *kc, const char *channel_id, const char *message_id, const char *emoji, int remove);
 
 /* Opens a direct message with a user (by id). Returns 0 or a REST_E_* code; the answer is a KE_CHANNEL event,
  * or a KE_ERROR (for a bot: the user must share a server with it). */

@@ -5,6 +5,7 @@
 #import "DMController.h"
 #import "ImageWindow.h"
 #import "ImageListController.h"
+#import "ReactController.h"
 #include "client.h"
 #include "kprefs.h"
 #include "emoji.h"
@@ -29,6 +30,8 @@
     NSMutableArray    *channelWindows;     /* every open ChannelWindow */
     DMController      *dmController;
     ImageListController *imageList;
+    ReactController     *reactController;
+    NSMutableDictionary *downloads;        /* url -> where the file being downloaded is to be written */
     NSMutableArray    *imageWindows;       /* every open ImageWindow */
     NSMutableDictionary *imageNames;       /* url -> file name, for the pictures being fetched */
     NSMutableDictionary *thumbs;           /* url -> NSImage (or an empty string if it failed): inline pictures */
@@ -54,6 +57,12 @@
 /* The pictures attached to the messages of the channel shown in the main window (ImageItem objects), and what
  * choosing one does: ask the engine to fetch it, then show it in an ImageWindow. */
 - (NSArray *)imageItemsForCurrentChannel;
+- (NSArray *)attachmentItemsForCurrentChannel;      /* the same, and the files that are not pictures too */
+/* Downloads an attachment to a path (Save... asks where first). The file arrives later, through the polling timer. */
+- (void)saveItem:(ImageItem *)item toPath:(NSString *)path;
+/* Puts our reaction on a message of the channel shown (or takes it back): `text` is an emoji, ":shortcode:", ":name:" of a
+ * custom emoji seen in the channel, or a pasted <:name:id>. Returns whether it was sent. */
+- (BOOL)reactToMessage:(NSString *)messageId withText:(NSString *)text remove:(BOOL)remove;
 - (void)openImageItem:(ImageItem *)item;
 - (NSArray *)imageWindows;
 - (BOOL)loadEmojiPackFromPath:(NSString *)path;   /* also what launch does with the pack in the app bundle */

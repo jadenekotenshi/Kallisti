@@ -60,7 +60,7 @@ CORE_OBJS = core/aes.o core/base64.o core/bignum.o core/chacha.o core/chain.o co
             core/tls_wire.o core/wire.o core/ws.o core/x509.o
 APP_OBJS  = app/AppController.o app/ChannelPane.o app/ChannelWindow.o app/DMController.o \
             app/ImageListController.o app/ImageWindow.o app/LoginController.o app/MainController.o \
-            app/SecretField.o app/UIHelpers.o app/main.o
+            app/ReactController.o app/SecretField.o app/UIHelpers.o app/main.o
 
 .SUFFIXES: .c .m .o
 

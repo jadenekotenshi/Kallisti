@@ -88,6 +88,8 @@ static KMs app_now_ms(void)
 - (void)showNewDM:(id)sender;
 - (void)closeChannelWindows;
 - (void)showImages:(id)sender;
+- (void)showReact:(id)sender;
+- (void)downloadArrived:(KImage *)img;
 - (void)toggleInline:(id)sender;
 - (void)toggleEmoji:(id)sender;
 - (NSString *)findEmojiPack;
@@ -111,6 +113,7 @@ static KMs app_now_ms(void)
     channelWindows = [[NSMutableArray alloc] init];
     imageWindows = [[NSMutableArray alloc] init];
     imageNames = [[NSMutableDictionary alloc] init];
+    downloads = [[NSMutableDictionary alloc] init];
     thumbs = [[NSMutableDictionary alloc] init];
     thumbsAsked = [[NSMutableSet alloc] init];
     emojiImages = [[NSMutableDictionary alloc] init];
@@ -128,7 +131,7 @@ static KMs app_now_ms(void)
     [mainController release];
     [channelWindows release];
     [dmController release];
-    [imageList release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release]; [emojiBase release]; [emojiImages release];
+    [imageList release]; [reactController release]; [downloads release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release]; [emojiBase release]; [emojiImages release];
     [kallistiDir release]; [prefsPath release]; [rngSeedPath release];
     [entropyPanel release];
     [restHost release]; [gatewayURL release];
@@ -175,7 +178,8 @@ static KMs app_now_ms(void)
     [self addItem:@"Disconnect" action:@selector(disconnect:) key:@"d" target:self toMenu:m];
     [self addItem:@"New Direct Message..." action:@selector(showNewDM:) key:@"t" target:self toMenu:m];
     [self addItem:@"Open Channel in New Window" action:@selector(openCurrentInWindow:) key:@"o" target:self toMenu:m];
-    [self addItem:@"Images in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
+    [self addItem:@"Attachments in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
+    [self addItem:@"React to a Message..." action:@selector(showReact:) key:@"r" target:self toMenu:m];
     [self addItem:@"Show Images Inline (Experimental)" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
     inlineItem = [m itemWithTitle:@"Show Images Inline (Experimental)"];
     [self addItem:@"Show Emoji as Pictures" action:@selector(toggleEmoji:) key:@"" target:self toMenu:m];
@@ -420,6 +424,10 @@ static KMs app_now_ms(void)
         NSString *name = [imageNames objectForKey:url];
         ImageWindow *w = nil;
 
+        if (img.tag == 2) {                                        /* a file being saved */
+            [self downloadArrived:&img];
+            continue;
+        }
         if (img.tag == 1) {                                        /* a thumbnail for the message log */
             NSImage *thumb = nil;
 
@@ -490,6 +498,7 @@ static KMs app_now_ms(void)
     [self closeChannelWindows];
     [self closeImageWindows];
     [imageList closePanel];
+    [reactController closePanel];
     if (kc) {
         kc_stop(kc);
         kc_free(kc);
@@ -751,7 +760,7 @@ static KMs app_now_ms(void)
 
 - (NSArray *)imageWindows { return imageWindows; }
 
-- (NSArray *)imageItemsForCurrentChannel
+- (NSArray *)attachmentItemsForCurrentChannel
 {
     NSMutableArray *list = [NSMutableArray array];
     NSString *cid = [mainController currentChannel];
@@ -767,31 +776,44 @@ static KMs app_now_ms(void)
             Attachment *a = &m->att[j];
             NSString *label;
 
-            if (!a->is_image) continue;
             label = [NSString stringWithFormat:@"[%s] %@: %@%@", hm, S(m->author), S(a->name),
-                     (a->width > 0 && a->height > 0) ? [NSString stringWithFormat:@"  (%dx%d)", a->width, a->height] : @""];
-            [list addObject:[[[ImageItem alloc] initWithLabel:label url:S(a->url) name:S(a->name)
+                     (a->width > 0 && a->height > 0) ? [NSString stringWithFormat:@"  (%dx%d)", a->width, a->height] :
+                     (a->is_image ? @"" : @"  (file)")];
+            [list addObject:[[[ImageItem alloc] initWithLabel:label url:S(a->url) saveURL:S(a->dl_url) name:S(a->name)
                                                         width:(unsigned long)a->width height:(unsigned long)a->height
-                                                         jpeg:(a->is_jpeg ? YES : NO) gif:(a->is_gif ? YES : NO)] autorelease]];
+                                                         jpeg:(a->is_jpeg ? YES : NO) gif:(a->is_gif ? YES : NO)
+                                                        image:(a->is_image ? YES : NO)] autorelease]];
         }
+    }
+    return list;
+}
+
+- (NSArray *)imageItemsForCurrentChannel
+{
+    NSMutableArray *list = [NSMutableArray array];
+    NSArray *all = [self attachmentItemsForCurrentChannel];
+    unsigned i;
+
+    for (i = 0; i < [all count]; i++) {
+        if (((ImageItem *)[all objectAtIndex:i])->isImage) [list addObject:[all objectAtIndex:i]];
     }
     return list;
 }
 
 - (void)showImages:(id)sender
 {
-    NSArray *items = [self imageItemsForCurrentChannel];
+    NSArray *items = [self attachmentItemsForCurrentChannel];
 
     if (![mainController currentChannel]) {
         NSRunAlertPanel(@"No channel", @"Choose a channel first.", @"OK", nil, nil);
         return;
     }
     if ([items count] == 0) {
-        NSRunAlertPanel(@"No pictures", @"None of the messages shown in this channel has a picture attached.", @"OK", nil, nil);
+        NSRunAlertPanel(@"No attachments", @"None of the messages shown in this channel has a file attached.", @"OK", nil, nil);
         return;
     }
     if (!imageList) imageList = [[ImageListController alloc] initWithOwner:self];
-    [imageList showItems:items title:@"Images in This Channel"];
+    [imageList showItems:items title:@"Attachments in This Channel"];
 }
 
 - (void)openImageItem:(ImageItem *)item
@@ -810,6 +832,121 @@ static KMs app_now_ms(void)
 - (void)imageList:(ImageListController *)c didChooseItem:(ImageItem *)item
 {
     [self openImageItem:item];
+}
+
+- (void)imageList:(ImageListController *)c didSaveItem:(ImageItem *)item
+{
+    NSSavePanel *sp = [NSSavePanel savePanel];
+
+    if ([sp runModalForDirectory:nil file:item->name] == NSOKButton) {
+        [self saveItem:item toPath:[sp filename]];
+    }
+}
+
+- (void)saveItem:(ImageItem *)item toPath:(NSString *)path
+{
+    if (!kc || kc_fetch_file(kc, [item->saveURL cString], 2) != 0) {
+        [mainController appendNotice:@"Too many downloads are going; try again in a moment."];
+        return;
+    }
+    [downloads setObject:path forKey:item->saveURL];
+    [mainController setStatus:[NSString stringWithFormat:@"Downloading %@...", item->name]];
+}
+
+/* The file for a download that arrived (tag 2) is written as it came; nothing is decoded. */
+- (void)downloadArrived:(KImage *)img
+{
+    NSString *url = S(img->url);
+    NSString *path = [downloads objectForKey:url];
+
+    if (path != nil) {
+        if (img->ok) {
+            FILE *f = fopen([path cString], "wb");
+            BOOL good = f != NULL && (img->tiff_len == 0 || fwrite(img->tiff, 1, img->tiff_len, f) == img->tiff_len);
+
+            if (f != NULL && fclose(f) != 0) good = NO;
+            if (good) {
+                [mainController setStatus:[NSString stringWithFormat:@"Saved %@ (%u KB)", [path lastPathComponent],
+                                           (unsigned)((img->tiff_len + 1023UL) / 1024UL)]];
+            } else {
+                if (f != NULL) remove([path cString]);
+                [mainController appendNotice:[NSString stringWithFormat:@"Could not write %@.", path]];
+            }
+        } else {
+            [mainController appendNotice:[NSString stringWithFormat:@"Download failed: %@", S(img->error)]];
+        }
+        [downloads removeObjectForKey:url];
+    }
+    kc_image_free(img);
+}
+
+- (void)showReact:(id)sender
+{
+    NSMutableArray *ids = [NSMutableArray array], *labels = [NSMutableArray array], *infos = [NSMutableArray array];
+    NSString *cid = [mainController currentChannel];
+    Channel *c = (kc && cid) ? model_find_channel(kc_model(kc), [cid cString]) : NULL;
+    int i, first;
+
+    if (c == NULL) {
+        NSRunAlertPanel(@"No channel", @"Choose a channel first.", @"OK", nil, nil);
+        return;
+    }
+    if (c->nmsgs == 0) {
+        NSRunAlertPanel(@"No messages", @"There is nothing here to react to yet.", @"OK", nil, nil);
+        return;
+    }
+    first = c->nmsgs > 40 ? c->nmsgs - 40 : 0;
+    for (i = first; i < c->nmsgs; i++) {
+        Message *m = &c->msgs[i];
+        char hm[8], day[16];
+        char line[100];
+        NSString *rs = @"";
+        int k;
+
+        ktime_local(m->time, hm, day);
+        strncpy(line, m->text, sizeof(line) - 1);
+        line[sizeof(line) - 1] = '\0';
+        {
+            char *nl = strchr(line, '\n');
+            if (nl != NULL) *nl = '\0';
+        }
+        for (k = 0; k < m->nreact; k++) {
+            const Reaction *r = &m->react[k];
+            char one[160];
+
+            if (r->id[0] != '\0') sprintf(one, ":%.60s:", r->name); else strncpy(one, r->name, 100);
+            one[sizeof(one) - 1] = '\0';
+            rs = [rs stringByAppendingFormat:@"%@%@ %d%s", k > 0 ? @"   " : @"", S(one), r->count, r->me ? "*" : ""];
+        }
+        [ids addObject:S(m->id)];
+        [labels addObject:[NSString stringWithFormat:@"[%s] %@: %@", hm, S(m->author), S(line)]];
+        [infos addObject:rs];
+    }
+    if (!reactController) reactController = [[ReactController alloc] initWithOwner:self];
+    [reactController showMessageIds:ids labels:labels reactions:infos];
+}
+
+- (BOOL)reactController:(ReactController *)rc reactWith:(NSString *)emojiText toMessage:(NSString *)messageId remove:(BOOL)remove
+{
+    return [self reactToMessage:messageId withText:emojiText remove:remove];
+}
+
+- (BOOL)reactToMessage:(NSString *)messageId withText:(NSString *)text remove:(BOOL)remove
+{
+    NSString *cid = [mainController currentChannel];
+    Channel *c = (kc && cid) ? model_find_channel(kc_model(kc), [cid cString]) : NULL;
+    char out[96];
+
+    if (c == NULL) return NO;
+    if (model_resolve_reaction(c, emojiPack, UI_CPATH(text), out, sizeof(out)) != 0) {
+        [mainController appendNotice:@"That is not an emoji. Type :name: (like :thumbsup:), a custom emoji's :name:, or paste the emoji."];
+        return NO;
+    }
+    if (kc_react(kc, c->id, [messageId cString], out, remove ? 1 : 0) != 0) {
+        [mainController appendNotice:@"The reaction could not be sent."];
+        return NO;
+    }
+    return YES;
 }
 
 - (void)imageWindowClosed:(ImageWindow *)iw

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "model.h"
+#include "ws.h"
 
 /* ---------------------------------------------------------------- small helpers */
 
@@ -887,6 +888,167 @@ static void on_reaction(Model *m, const char *kind, const JNode *d)
     push_change(m, MC_MESSAGE_CHANGED, c->guild_id, c->id, mid);
 }
 
+/* ---------------------------------------------------------------- picking an emoji to react with */
+
+static int all_digits(const char *s, size_t n)
+{
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        if (s[i] < '0' || s[i] > '9') {
+            return 0;
+        }
+    }
+    return n >= 1 && n <= 20;
+}
+
+/* "name:id" if s[0..n) is that (a name of word characters, then digits). */
+static int is_name_id(const char *s, size_t n)
+{
+    size_t i = 0, colon;
+
+    while (i < n && (s[i] == '_' || (s[i] >= '0' && s[i] <= '9') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z'))) {
+        i++;
+    }
+    colon = i;
+    return colon >= 2 && colon < n && s[colon] == ':' && all_digits(s + colon + 1, n - colon - 1);
+}
+
+static int name_eq_ci(const char *a, size_t an, const char *b, size_t bn)
+{
+    size_t i;
+
+    if (an != bn) {
+        return 0;
+    }
+    for (i = 0; i < an; i++) {
+        char x = a[i], y = b[i];
+
+        if (x >= 'A' && x <= 'Z') {
+            x = (char)(x + 32);
+        }
+        if (y >= 'A' && y <= 'Z') {
+            y = (char)(y + 32);
+        }
+        if (x != y) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int model_resolve_reaction(const Channel *c, const EmojiPack *pack, const char *text, char *out, size_t cap)
+{
+    char buf[200];
+    size_t a = 0, b, n, i, ulen;
+    const char *u;
+
+    if (text == NULL || cap < 2) {
+        return -1;
+    }
+    b = strlen(text);
+    while (a < b && (text[a] == ' ' || text[a] == '\t' || text[a] == '\n' || text[a] == '\r')) {
+        a++;
+    }
+    while (b > a && (text[b - 1] == ' ' || text[b - 1] == '\t' || text[b - 1] == '\n' || text[b - 1] == '\r')) {
+        b--;
+    }
+    n = b - a;
+    if (n == 0 || n >= sizeof(buf)) {
+        return -1;
+    }
+    memcpy(buf, text + a, n);
+    buf[n] = '\0';
+    if (!ws_utf8_valid((const unsigned char *)buf, n)) {
+        return -1;
+    }
+    /* <:name:id> or <a:name:id> as Discord writes it in a message */
+    if (buf[0] == '<' && buf[n - 1] == '>') {
+        size_t s = (n > 3 && buf[1] == 'a' && buf[2] == ':') ? 3 : (n > 2 && buf[1] == ':') ? 2 : 0;
+
+        if (s != 0 && is_name_id(buf + s, n - 1 - s) && n - 1 - s < cap) {
+            memcpy(out, buf + s, n - 1 - s);
+            out[n - 1 - s] = '\0';
+            return 0;
+        }
+        return -1;
+    }
+    if (is_name_id(buf, n)) {
+        if (n >= cap) {
+            return -1;
+        }
+        strcpy(out, buf);
+        return 0;
+    }
+    if (n >= 3 && buf[0] == ':' && buf[n - 1] == ':' && strchr(buf + 1, ' ') == NULL) {
+        const char *name = buf + 1;
+        size_t nl = n - 2;
+
+        for (i = 0; c != NULL && i < (size_t)c->nmsgs; i++) {
+            const Message *m = &c->msgs[i];
+            int k;
+
+            for (k = 0; k < m->nreact; k++) {
+                if (m->react[k].id[0] != '\0' && name_eq_ci(m->react[k].name, strlen(m->react[k].name), name, nl) &&
+                    strlen(m->react[k].name) + strlen(m->react[k].id) + 2 <= cap) {
+                    sprintf(out, "%s:%s", m->react[k].name, m->react[k].id);
+                    return 0;
+                }
+            }
+            for (k = 0; k < m->nemoji; k++) {
+                const Emoji *e = &m->emoji[k];
+
+                /* the text holds ":name:" at off..off+len */
+                if (e->len >= 3 && (size_t)(e->off + e->len) <= strlen(m->text) &&
+                    name_eq_ci(m->text + e->off + 1, (size_t)e->len - 2, name, nl) &&
+                    (size_t)e->len + strlen(e->id) <= cap) {
+                    memcpy(out, m->text + e->off + 1, (size_t)e->len - 2);
+                    sprintf(out + e->len - 2, ":%s", e->id);
+                    return 0;
+                }
+            }
+        }
+        if (pack != NULL) {
+            char low[100];
+
+            if (nl >= sizeof(low)) {
+                return -1;
+            }
+            for (i = 0; i < nl; i++) {
+                low[i] = (name[i] >= 'A' && name[i] <= 'Z') ? (char)(name[i] + 32) : name[i];
+            }
+            u = emoji_pack_lookup(pack, low, nl, &ulen);
+            if (u != NULL && ulen < cap) {
+                memcpy(out, u, ulen);
+                out[ulen] = '\0';
+                return 0;
+            }
+        }
+        return -1;
+    }
+    /* the emoji itself: all of the text must be one emoji (or, without a pack to tell, anything beyond ASCII) */
+    if (pack != NULL) {
+        size_t s, e;
+        char key[EMOJI_KEY_MAX];
+
+        if (!emoji_next(pack, buf, n, 0, &s, &e, key) || s != 0 || e != n) {
+            return -1;
+        }
+    } else {
+        for (i = 0; i < n && (unsigned char)buf[i] < 0x80; i++) {
+            ;
+        }
+        if (i == n) {
+            return -1;
+        }
+    }
+    if (n >= cap) {
+        return -1;
+    }
+    strcpy(out, buf);
+    return 0;
+}
+
 /* ---------------------------------------------------------------- embeds */
 
 #define MAX_EMBEDS_SHOWN 3
@@ -1157,6 +1319,13 @@ static void parse_attachments(Message *msg, const JNode *json)
             continue;                                      /* a longer address than we keep: unusable */
         }
         strcpy(t->url, url);
+        {
+            const char *orig = json_get_str(a, "url", "");
+
+            if (strlen(orig) < sizeof(t->dl_url)) {
+                strcpy(t->dl_url, orig);
+            }
+        }
         copy_utf8(t->name, sizeof(t->name), json_get_str(a, "filename", "file"));
         t->width = int_of(a, "width", 0);
         t->height = int_of(a, "height", 0);

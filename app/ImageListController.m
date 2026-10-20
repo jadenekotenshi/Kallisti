@@ -2,13 +2,15 @@
 #import "UIHelpers.h"
 
 @implementation ImageItem
-- (id)initWithLabel:(NSString *)l url:(NSString *)u name:(NSString *)n width:(unsigned long)w height:(unsigned long)h
-               jpeg:(BOOL)isJpeg gif:(BOOL)isGif
+- (id)initWithLabel:(NSString *)l url:(NSString *)u saveURL:(NSString *)s name:(NSString *)n width:(unsigned long)w
+             height:(unsigned long)h jpeg:(BOOL)isJpeg gif:(BOOL)isGif image:(BOOL)image
 {
     self = [super init];
     if (!self) return nil;
     label = [l retain];
     url = [u retain];
+    saveURL = [([s length] > 0 ? s : u) retain];
+    isImage = image;
     name = [n retain];
     width = w;
     height = h;
@@ -18,7 +20,7 @@
 }
 - (void)dealloc
 {
-    [label release]; [url release]; [name release];
+    [label release]; [url release]; [saveURL release]; [name release];
     [super dealloc];
 }
 @end
@@ -27,6 +29,7 @@
 @interface ImageListController (Private)
 - (void)buildPanel;
 - (void)openChosen:(id)sender;
+- (void)saveChosen:(id)sender;
 - (void)closeClicked:(id)sender;
 @end
 
@@ -61,7 +64,7 @@
     [panel setMinSize:NSMakeSize(300, 160)];
     scroll = [[[NSScrollView alloc] initWithFrame:NSMakeRect(8, 48, 464, 244)] autorelease];
     col = [[[NSTableColumn alloc] initWithIdentifier:@"image"] autorelease];
-    [[col headerCell] setStringValue:@"Pictures (newest last)"];
+    [[col headerCell] setStringValue:@"Attachments (newest last)"];
     [col setWidth:440];
     [col setEditable:NO];
     table = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 464, 100)];
@@ -74,7 +77,8 @@
     [scroll setDocumentView:table];
     [scroll setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [[panel contentView] addSubview:scroll];
-    [[panel contentView] addSubview:ui_button(@"Close", NSMakeRect(300, 10, 80, 28), self, @selector(closeClicked:))];
+    [[panel contentView] addSubview:ui_button(@"Close", NSMakeRect(208, 10, 80, 28), self, @selector(closeClicked:))];
+    [[panel contentView] addSubview:ui_button(@"Save...", NSMakeRect(300, 10, 80, 28), self, @selector(saveChosen:))];
     [[panel contentView] addSubview:ui_button(@"Open", NSMakeRect(392, 10, 80, 28), self, @selector(openChosen:))];
     [panel center];
 }
@@ -107,7 +111,22 @@
         NSBeep();
         return;
     }
+    if (!((ImageItem *)[items objectAtIndex:row])->isImage) {      /* a file has nothing to look at: a double-click saves it */
+        [owner imageList:self didSaveItem:[items objectAtIndex:row]];
+        return;
+    }
     [owner imageList:self didChooseItem:[items objectAtIndex:row]];
+}
+
+- (void)saveChosen:(id)sender
+{
+    int row = [table selectedRow];
+
+    if (row < 0 || row >= (int)[items count]) {
+        NSBeep();
+        return;
+    }
+    [owner imageList:self didSaveItem:[items objectAtIndex:row]];
 }
 
 @end

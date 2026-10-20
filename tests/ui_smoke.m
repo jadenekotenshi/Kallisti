@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -62,6 +63,35 @@ static BOOL hasWindowMsg(AppController *app)
 static BOOL hasPicMessage(AppController *app)
 {
     return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
+}
+
+static BOOL hasFileMessage(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"[attachment: notes.bin]"].location != NSNotFound;
+}
+
+static BOOL hasMyReaction(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"1*]"].location != NSNotFound;
+}
+
+static BOOL hasNoMyReaction(AppController *app)
+{
+    NSString *s = [[app mainController] messageString];
+
+    return [s rangeOfString:@"reactui"].location != NSNotFound && [s rangeOfString:@"1*]"].location == NSNotFound;
+}
+
+static long fileSize(NSString *path)
+{
+    struct stat st;
+
+    return stat([path cString], &st) == 0 ? (long)st.st_size : -1L;
+}
+
+static BOOL savedFileArrived(AppController *app)
+{
+    return fileSize(@"/tmp/kallisti_ui_smoke_notes.bin") == 70000L;
 }
 
 /* the (last) line of `text` that contains `needle`, without its newline */
@@ -330,6 +360,60 @@ int main(int argc, char **argv)
                 [app imageWindowClosed:[[app imageWindows] objectAtIndex:0]];
                 CHECK([[app imageWindows] count] == 0);
             }
+        }
+    }
+
+    /* an attachment that is not a picture is listed, and saved from Discord's own address (not the media proxy's) */
+    [main typeText:@"savefile"];
+    CHECK(waitFor(hasFileMessage, app, 10.0));
+    {
+        NSArray *all = [app attachmentItemsForCurrentChannel];
+        ImageItem *file = nil;
+        unsigned i;
+
+        for (i = 0; i < [all count]; i++) {
+            if ([((ImageItem *)[all objectAtIndex:i])->name isEqualToString:@"notes.bin"]) file = [all objectAtIndex:i];
+        }
+        CHECK(file != nil && !file->isImage && [file->label rangeOfString:@"someone: notes.bin  (file)"].location != NSNotFound);
+        if (file != nil) {
+            remove("/tmp/kallisti_ui_smoke_notes.bin");
+            [app saveItem:file toPath:@"/tmp/kallisti_ui_smoke_notes.bin"];
+            CHECK(waitFor(savedFileArrived, app, 20.0));
+            {
+                FILE *f = fopen("/tmp/kallisti_ui_smoke_notes.bin", "rb");
+                int ok = f != NULL, k;
+
+                for (k = 0; ok && k < 70000; k++) {
+                    if (fgetc(f) != ((k * 7 + k / 256) & 255)) ok = 0;
+                }
+                if (f != NULL) fclose(f);
+                CHECK(ok);
+            }
+            remove("/tmp/kallisti_ui_smoke_notes.bin");
+        }
+    }
+
+    /* reacting: the emoji is worked out here (a pasted custom emoji tag), the REST call goes out, the gateway's event
+     * puts it under the message */
+    [main typeText:@"reactui"];
+    CHECK(waitFor(hasNoMyReaction, app, 10.0));
+    {
+        Channel *ch = model_find_channel(kc_model([app client]), "200");
+        NSString *mid = nil;
+        int i;
+
+        for (i = 0; ch != NULL && i < ch->nmsgs; i++) {
+            if (strcmp(ch->msgs[i].text, "reactui") == 0) mid = [NSString stringWithCString:ch->msgs[i].id];
+        }
+        CHECK(mid != nil);
+        CHECK(![app reactToMessage:mid withText:@"not an emoji" remove:NO]);
+        CHECK(![app reactToMessage:mid withText:@"" remove:NO]);
+        if (mid != nil) {
+            CHECK([app reactToMessage:mid withText:@"<:blobcat:555>" remove:NO]);
+            CHECK(waitFor(hasMyReaction, app, 10.0));
+            CHECK([[[app mainController] messageString] rangeOfString:@"blobcat"].location != NSNotFound);
+            CHECK([app reactToMessage:mid withText:@"<:blobcat:555>" remove:YES]);
+            CHECK(waitFor(hasNoMyReaction, app, 10.0));
         }
     }
 

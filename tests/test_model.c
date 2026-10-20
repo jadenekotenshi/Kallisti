@@ -437,6 +437,7 @@ static void test_attachments(void)
           msg->att[0].width == 800 && msg->att[0].height == 600 && strcmp(msg->att[0].name, "cat.png") == 0);
     CHECK(strcmp(msg->att[1].url, "https://cdn.example/a/notes.txt") == 0 && !msg->att[1].is_image);
     CHECK(msg->att[2].is_image && msg->att[2].width == 10);
+    CHECK(strcmp(msg->att[0].dl_url, "https://cdn.example/a/cat.png") == 0 && strcmp(msg->att[1].dl_url, "https://cdn.example/a/notes.txt") == 0);   /* the original, for saving */
     CHECK(!msg->att[0].is_gif && !msg->att[2].is_gif);
     CHECK(!msg->att[0].is_jpeg && !msg->att[1].is_jpeg && msg->att[2].is_jpeg);          /* pic.jpg: by its extension */
     /* a message without attachments has none, and an over-long address is dropped rather than cut */
@@ -506,6 +507,36 @@ static void test_reactions(void)
     dispatch(m, "MESSAGE_REACTION_ADD", "{\"channel_id\":\"201\",\"message_id\":\"20\"}");
     dispatch(m, "MESSAGE_REACTION_REMOVE", "{}");
     CHECK(drain(m, ch, 16) == 0 && msg->nreact == 0);
+    model_free(m);
+}
+
+static void test_resolve_reaction(void)
+{
+    Model *m = start();
+    Channel *c;
+    ModelChange ch[16];
+    char out[64];
+
+    drain(m, ch, 16);
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"30\",\"channel_id\":\"201\",\"content\":\"look <:wave:777> and <a:spin:888>\",\"author\":{\"id\":\"1\",\"username\":\"a\"},"
+             "\"reactions\":[{\"count\":1,\"me\":false,\"emoji\":{\"id\":\"555\",\"name\":\"Blobcat\"}}]}");
+    c = model_find_channel(m, "201");
+    CHECK(model_resolve_reaction(c, NULL, "\xf0\x9f\x91\x8d", out, sizeof(out)) == 0 && strcmp(out, "\xf0\x9f\x91\x8d") == 0);
+    CHECK(model_resolve_reaction(c, NULL, "  \xf0\x9f\x91\x8d \n", out, sizeof(out)) == 0 && strcmp(out, "\xf0\x9f\x91\x8d") == 0);
+    CHECK(model_resolve_reaction(c, NULL, "plain", out, sizeof(out)) == -1 && model_resolve_reaction(c, NULL, "", out, sizeof(out)) == -1 &&
+          model_resolve_reaction(c, NULL, "   ", out, sizeof(out)) == -1 && model_resolve_reaction(c, NULL, NULL, out, sizeof(out)) == -1);
+    CHECK(model_resolve_reaction(c, NULL, "\xff\xfe", out, sizeof(out)) == -1);
+    CHECK(model_resolve_reaction(c, NULL, "<:wave:777>", out, sizeof(out)) == 0 && strcmp(out, "wave:777") == 0);
+    CHECK(model_resolve_reaction(c, NULL, "<a:spin:888>", out, sizeof(out)) == 0 && strcmp(out, "spin:888") == 0);
+    CHECK(model_resolve_reaction(c, NULL, "<:wave:77x>", out, sizeof(out)) == -1 && model_resolve_reaction(c, NULL, "<wave:777>", out, sizeof(out)) == -1);
+    CHECK(model_resolve_reaction(c, NULL, "wave:777", out, sizeof(out)) == 0 && strcmp(out, "wave:777") == 0);
+    CHECK(model_resolve_reaction(c, NULL, "wave:", out, sizeof(out)) == -1);
+    /* a custom emoji by name: from the text of a message, or from a reaction (any case) */
+    CHECK(model_resolve_reaction(c, NULL, ":wave:", out, sizeof(out)) == 0 && strcmp(out, "wave:777") == 0);
+    CHECK(model_resolve_reaction(c, NULL, ":SPIN:", out, sizeof(out)) == 0 && strcmp(out, "spin:888") == 0);
+    CHECK(model_resolve_reaction(c, NULL, ":blobcat:", out, sizeof(out)) == 0 && strcmp(out, "Blobcat:555") == 0);
+    CHECK(model_resolve_reaction(c, NULL, ":nosuch:", out, sizeof(out)) == -1 && model_resolve_reaction(NULL, NULL, ":wave:", out, sizeof(out)) == -1);
+    CHECK(model_resolve_reaction(c, NULL, ":wave:", out, 5) == -1);                /* too small an output */
     model_free(m);
 }
 
@@ -818,6 +849,7 @@ int main(void)
     test_stickers();
     test_custom_emoji();
     test_reactions();
+    test_resolve_reaction();
     test_fuzz();
     TEST_DONE("model");
 }
