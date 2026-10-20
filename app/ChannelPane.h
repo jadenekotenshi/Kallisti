@@ -2,7 +2,7 @@
 #include "model.h"
 #include "emoji.h"
 
-/* The messages of one channel and a field to type into: a scrolling, coloured log above a one-line input.  Used
+/* The messages of one channel and a field to type into: a scrolling, coloured log above an input that grows to fit what is typed.  Used
  * for the right-hand side of the main window (where -setChannel: follows the list's selection) and for each
  * separate channel window. Reads the Model directly and is told what changed through -modelChanged:. */
 @interface ChannelPane : NSObject
@@ -12,7 +12,9 @@
     NSView       *view;
     NSScrollView *messageScroll;
     NSTextView   *messageText;
-    NSTextField  *inputField;
+    NSScrollView *inputScroll;           /* around inputText; grows with what is typed, up to a limit */
+    NSTextView   *inputText;
+    float         inputHeight;           /* current height of the input; 0 until laid out */
     NSString     *channel;               /* id of the channel shown, or nil */
     char          lastDay[16];           /* the day of the last message drawn, for the date separators */
     NSFont       *boldFont, *normalFont;
@@ -30,6 +32,11 @@
 /* Pictures drawn inside the log (experimental): `source` answers -inlineImageForURL:width:height:jpeg:. */
 - (void)setImageSource:(id)source showInline:(BOOL)showInline;
 - (NSString *)messageString;                  /* the log's text, for the tests */
+- (void)layoutSubviews;                       /* place the log and the input; the pane's view calls this on resizing */
+- (void)inputReturnPressed:(BOOL)newline;     /* Return sends; Shift- or Alt-Return (newline YES) adds a line */
+- (void)setDraft:(NSString *)text;            /* put text in the input without sending, for the tests */
+- (NSString *)draft;
+- (float)inputHeight;
 - (void)typeText:(NSString *)text;            /* as if typed and Return pressed, for the tests */
 @end
 

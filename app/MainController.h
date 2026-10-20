@@ -31,6 +31,10 @@
 - (NSString *)messageString;
 - (NSString *)statusString;
 - (void)typeText:(NSString *)text;
+- (void)setDraft:(NSString *)text;
+- (NSString *)draft;
+- (float)inputHeight;
+- (void)inputReturnPressed:(BOOL)newline;
 @end
 
 @interface NSObject (MainControllerOwner)

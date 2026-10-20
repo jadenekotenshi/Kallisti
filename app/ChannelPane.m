@@ -5,6 +5,53 @@
 #include "ktime.h"
 
 #define INPUT_HEIGHT 24.0
+#define INPUT_MAX_HEIGHT 110.0
+
+/* The pane's view: lays its children out by hand since the input's height varies. */
+@interface PaneView : NSView
+{
+    ChannelPane *pane;
+}
+- (void)setPane:(ChannelPane *)p;
+@end
+
+@implementation PaneView
+- (void)setPane:(ChannelPane *)p { pane = p; }
+- (void)resizeSubviewsWithOldSize:(NSSize)oldSize
+{
+    [pane layoutSubviews];
+}
+@end
+
+/* The text view typed into: Return asks the pane to send, Shift- or Alt-Return makes a new line. */
+@interface InputView : NSTextView
+{
+    ChannelPane *pane;
+}
+- (void)setPane:(ChannelPane *)p;
+@end
+
+@implementation InputView
+- (void)setPane:(ChannelPane *)p { pane = p; }
+- (void)insertNewline:(id)sender
+{
+    unsigned flags = [[NSApp currentEvent] modifierFlags];
+
+    [pane inputReturnPressed:(flags & (NSShiftKeyMask | NSAlternateKeyMask)) != 0];
+}
+@end
+
+/* The width of a string in a font: OPENSTEP's NSFont measures it, the modern AppKit does it through attributes. */
+static float text_width(NSFont *font, NSString *s)
+{
+#ifdef OPENSTEP
+    return [font widthOfString:s];
+#else
+    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
+
+    return [[[[NSAttributedString alloc] initWithString:s attributes:attrs] autorelease] size].width;
+#endif
+}
 
 static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 
@@ -28,6 +75,7 @@ static NSColor *author_color(const char *name)
 @interface ChannelPane (Private)
 - (void)appendString:(NSString *)s color:(NSColor *)color font:(NSFont *)font;
 - (void)appendMessage:(const Message *)m;
+- (void)appendReactions:(const Message *)m;
 - (void)appendRich:(const char *)text customs:(const Emoji *)customs count:(int)ncustoms prefix:(NSString *)prefix color:(NSColor *)color
               font:(NSFont *)font;
 - (void)inputSubmitted:(id)sender;
@@ -44,14 +92,14 @@ static NSColor *author_color(const char *name)
     normalFont = [[NSFont systemFontOfSize:12.0] retain];
     boldFont = [[NSFont boldSystemFontOfSize:12.0] retain];
 
-    view = [[NSView alloc] initWithFrame:frame];
+    view = [[PaneView alloc] initWithFrame:frame];
+    [(PaneView *)view setPane:self];
     [view setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
 
     messageScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, INPUT_HEIGHT, frame.size.width,
                                                                    frame.size.height - INPUT_HEIGHT)];
     [messageScroll setHasVerticalScroller:YES];
     [messageScroll setBorderType:NSBezelBorder];
-    [messageScroll setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     messageText = [[NSTextView alloc] initWithFrame:[[messageScroll contentView] frame]];
     [messageText setEditable:NO];
     [messageText setSelectable:YES];
@@ -66,17 +114,29 @@ static NSColor *author_color(const char *name)
     [messageScroll setDocumentView:messageText];
     [view addSubview:messageScroll];
 
-    inputField = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, INPUT_HEIGHT)];
-    [inputField setAutoresizingMask:(NSViewWidthSizable | NSViewMaxYMargin)];
-    [inputField setTarget:self];
-    [inputField setAction:@selector(inputSubmitted:)];
-    [view addSubview:inputField];
+    inputScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, INPUT_HEIGHT)];
+    [inputScroll setHasVerticalScroller:NO];
+    [inputScroll setBorderType:NSBezelBorder];
+    inputText = [[InputView alloc] initWithFrame:[[inputScroll contentView] frame]];
+    [(InputView *)inputText setPane:self];
+    [inputText setRichText:NO];
+    [inputText setFont:normalFont];
+    [inputText setVerticallyResizable:YES];
+    [inputText setHorizontallyResizable:NO];
+    [inputText setAutoresizingMask:NSViewWidthSizable];
+    [inputText setMinSize:NSMakeSize(0, 0)];
+    [inputText setMaxSize:NSMakeSize(1.0e7, 1.0e7)];
+    [[inputText textContainer] setWidthTracksTextView:YES];
+    [inputText setDelegate:(id)self];
+    [inputScroll setDocumentView:inputText];
+    [view addSubview:inputScroll];
+    [self layoutSubviews];
     return self;
 }
 
 - (void)dealloc
 {
-    [view release]; [messageScroll release]; [messageText release]; [inputField release];
+    [view release]; [messageScroll release]; [messageText release]; [inputScroll release]; [inputText release];
     [channel release]; [normalFont release]; [boldFont release];
     [super dealloc];
 }
@@ -84,7 +144,103 @@ static NSColor *author_color(const char *name)
 - (NSView *)view { return view; }
 - (NSString *)channel { return channel; }
 - (NSString *)messageString { return [messageText string]; }
-- (void)focusInput { [[view window] makeFirstResponder:inputField]; }
+- (void)focusInput { [[view window] makeFirstResponder:inputText]; }
+
+/* The height the input wants for its text: the text's own height plus the bezel, between one line and the cap. */
+- (float)wantedInputHeight
+{
+    /* Counted by hand, line by line with a greedy word wrap, because asking the text view itself is unreliable: inside
+     * the scroll view its height never goes below the clip view's, so the input would grow on its own. */
+    NSString *s = [inputText string];
+    float avail = [inputText frame].size.width - 12.0;
+    float lineH = [normalFont ascender] - [normalFont descender] + [normalFont leading];
+    float spaceW = text_width(normalFont, @" ");
+    unsigned i, n = [s length], start = 0;
+    int lines = 0;
+    float h;
+
+    if (avail < 20.0) avail = 20.0;
+    for (i = 0; i <= n; i++) {
+        if (i == n || [s characterAtIndex:i] == '\n') {
+            NSArray *words = [[s substringWithRange:NSMakeRange(start, i - start)] componentsSeparatedByString:@" "];
+            unsigned wi;
+            float used = 0;
+            int pl = 1;
+
+            for (wi = 0; wi < [words count]; wi++) {
+                NSString *word = [words objectAtIndex:wi];
+                float ww = text_width(normalFont, word);
+
+                if (used > 0 && used + spaceW + ww > avail) {
+                    pl++;
+                    used = 0;
+                }
+                if (used > 0) used += spaceW;
+                while (ww > avail) {                 /* a word longer than the line is broken wherever it falls */
+                    pl++;
+                    ww -= avail;
+                }
+                used += ww;
+            }
+            lines += pl;
+            start = i + 1;
+        }
+    }
+    h = lines * lineH + 8.0;
+    if (h < INPUT_HEIGHT) h = INPUT_HEIGHT;
+    if (h > INPUT_MAX_HEIGHT) h = INPUT_MAX_HEIGHT;
+    return h;
+}
+
+- (void)layoutSubviews
+{
+    NSRect b = [view bounds];
+    float inH = (inputHeight > 0) ? inputHeight : INPUT_HEIGHT;
+    NSScrollView *scroll = messageScroll;
+    BOOL atEnd = NO;
+
+    if (inH > b.size.height / 2) inH = b.size.height / 2;
+    if (inH < INPUT_HEIGHT) inH = INPUT_HEIGHT;
+    if (scroll != nil) {
+        NSRect vis = [[scroll contentView] bounds];
+        atEnd = NSMaxY(vis) >= [messageText frame].size.height - 2.0;
+    }
+    [inputScroll setFrame:NSMakeRect(0, 0, b.size.width, inH)];
+    [messageScroll setFrame:NSMakeRect(0, inH, b.size.width, b.size.height - inH)];
+    [inputScroll setHasVerticalScroller:(inH >= INPUT_MAX_HEIGHT)];
+    if (atEnd) [messageText scrollRangeToVisible:NSMakeRange([[messageText string] length], 0)];
+}
+
+/* The text changed: grow or shrink to fit. */
+- (void)textDidChange:(NSNotification *)note
+{
+    float h = [self wantedInputHeight];
+
+    if (h != inputHeight) {
+        inputHeight = h;
+        [self layoutSubviews];
+    }
+    [inputText scrollRangeToVisible:[inputText selectedRange]];
+}
+
+- (void)inputReturnPressed:(BOOL)newline
+{
+    if (newline) {
+        [inputText insertText:@"\n"];
+        [self textDidChange:nil];
+    } else {
+        [self inputSubmitted:nil];
+    }
+}
+
+- (void)setDraft:(NSString *)text
+{
+    [inputText setString:text];
+    [self textDidChange:nil];
+}
+
+- (NSString *)draft { return [inputText string]; }
+- (float)inputHeight { return (inputHeight > 0) ? inputHeight : INPUT_HEIGHT; }
 
 - (void)setImageSource:(id)source showInline:(BOOL)showInline
 {
@@ -166,6 +322,45 @@ static NSColor *author_color(const char *name)
     [self appendString:S(text + at) color:color font:font];
 }
 
+/* One grey line of "[emoji count]" boxes under a message; a * after the count marks one we made. */
+- (void)appendReactions:(const Message *)m
+{
+    char line[MODEL_MAX_REACTS * 112 + 8];
+    Emoji ce[MODEL_MAX_REACTS];
+    int i, n = 0, nce = 0;
+    size_t at = 0;
+
+    for (i = 0; i < m->nreact; i++) {
+        const Reaction *r = &m->react[i];
+        size_t nlen;
+
+        line[at++] = '[';
+        if (r->id[0] != '\0') {
+            nlen = strlen(r->name) + 2;
+            ce[nce].off = (int)at;
+            ce[nce].len = (int)nlen;
+            strncpy(ce[nce].id, r->id, sizeof(ce[nce].id) - 1);
+            ce[nce].id[sizeof(ce[nce].id) - 1] = '\0';
+            ce[nce].animated = r->animated;
+            nce++;
+            line[at++] = ':';
+            memcpy(line + at, r->name, nlen - 2);
+            at += nlen - 2;
+            line[at++] = ':';
+        } else {
+            nlen = strlen(r->name);
+            memcpy(line + at, r->name, nlen);
+            at += nlen;
+        }
+        at += (size_t)sprintf(line + at, " %d%s]%s", r->count, r->me ? "*" : "", i + 1 < m->nreact ? " " : "");
+        n++;
+    }
+    line[at] = '\0';
+    if (n == 0) return;
+    [self appendRich:line customs:(inlineImages && imageSource != nil) ? ce : NULL count:nce prefix:@"    " color:[NSColor darkGrayColor] font:normalFont];
+    [self appendString:@"\n" color:[NSColor darkGrayColor] font:normalFont];
+}
+
 - (void)appendMessage:(const Message *)m
 {
     char hm[8], day[16];
@@ -181,6 +376,7 @@ static NSColor *author_color(const char *name)
     [self appendRich:m->text customs:(inlineImages && imageSource != nil) ? m->emoji : NULL count:m->nemoji prefix:nil color:[NSColor blackColor] font:normalFont];
     if (m->edited) [self appendString:@" (edited)" color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];
+    if (m->nreact > 0) [self appendReactions:m];
     if (m->embeds != NULL && m->embeds[0] != '\0') {          /* link previews and other embeds, one grey line each */
         NSArray *lines = [S(m->embeds) componentsSeparatedByString:@"\n"];
         unsigned li;
@@ -282,21 +478,21 @@ static NSColor *author_color(const char *name)
 
 - (void)inputSubmitted:(id)sender
 {
-    NSString *text = ui_trim([inputField stringValue]);
+    NSString *text = ui_trim([inputText string]);
 
     if ([text length] == 0) return;
     if (channel == nil) {
         [self appendNotice:@"Choose a channel first."];
         return;
     }
-    [inputField setStringValue:@""];
+    [self setDraft:@""];
     [owner channelPane:self didSubmitText:text forChannel:channel];
 }
 
 - (void)typeText:(NSString *)text
 {
-    [inputField setStringValue:text];
-    [self inputSubmitted:inputField];
+    [self setDraft:text];
+    [self inputSubmitted:nil];
 }
 
 @end

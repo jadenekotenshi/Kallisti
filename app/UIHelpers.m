@@ -72,11 +72,13 @@ NSButton *ui_button(NSString *title, NSRect frame, id target, SEL action)
     return [b autorelease];
 }
 
+static int trim_char(unichar c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+
 NSString *ui_trim(NSString *s)
 {
     unsigned a = 0, b = [s length];
-    while (a < b && ([s characterAtIndex:a] == ' ' || [s characterAtIndex:a] == '\t')) a++;
-    while (b > a && ([s characterAtIndex:b - 1] == ' ' || [s characterAtIndex:b - 1] == '\t')) b--;
+    while (a < b && trim_char([s characterAtIndex:a])) a++;
+    while (b > a && trim_char([s characterAtIndex:b - 1])) b--;
     return [s substringWithRange:NSMakeRange(a, b - a)];
 }
 

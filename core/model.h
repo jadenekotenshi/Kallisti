@@ -31,6 +31,7 @@ enum { CH_TEXT = 0, CH_DM = 1, CH_GROUP_DM = 3, CH_CATEGORY = 4, CH_ANNOUNCEMENT
 
 #define MODEL_MAX_ATTACHMENTS 6
 #define MODEL_MAX_EMOJI 24
+#define MODEL_MAX_REACTS 20
 
 typedef struct {
     char url[480];               /* where to fetch it: Discord's media proxy URL if it sent one */
@@ -49,6 +50,16 @@ typedef struct {
     int animated;
 } Emoji;
 
+/* One kind of reaction on a message: a Unicode emoji (id empty, name is the emoji itself in UTF-8) or a custom one
+ * (id set, name is the bare name). */
+typedef struct {
+    char name[64];
+    char id[24];
+    int animated;
+    int count;
+    int me;                      /* we reacted with it too */
+} Reaction;
+
 typedef struct {
     char id[24];
     char author_id[24];
@@ -62,6 +73,8 @@ typedef struct {
     int natt;
     Emoji *emoji;                /* the custom emoji in text (up to MODEL_MAX_EMOJI), or NULL; owned */
     int nemoji;
+    Reaction *react;             /* the reactions (up to MODEL_MAX_REACTS kinds), or NULL; owned */
+    int nreact;
     char *embeds;                /* the embeds as plain lines ("| title", "| text", "[image: ...]"), or NULL; owned */
 } Message;
 

@@ -479,6 +479,26 @@ int main(int argc, char **argv)
     /* an empty line is ignored; before a channel is chosen there is a hint */
     [main typeText:@"   "];
 
+    /* the input grows with its text, up to a limit, and shrinks back once the line is sent */
+    {
+        float one = [main inputHeight];
+        float mid, cap;
+
+        [main setDraft:@"a\nb\nc\nd"];
+        mid = [main inputHeight];
+        CHECK(mid > one);
+        [main setDraft:@"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30"];
+        cap = [main inputHeight];
+        CHECK(cap > mid);
+        CHECK(cap <= 110.0);
+        [main setDraft:@""];
+        CHECK([main inputHeight] == one);
+        [main setDraft:@"x"];
+        [main inputReturnPressed:YES];
+        CHECK([[main draft] isEqualToString:@"x\n"]);
+        [main setDraft:@""];
+    }
+
     kill(server, SIGTERM);
     waitpid(server, &status, 0);
     printf("ui_smoke: %d passed, %d failed\n", t_pass, t_fail);

@@ -123,6 +123,9 @@ static void message_clear(Message *m)
     free(m->att);
     free(m->embeds);
     m->embeds = NULL;
+    free(m->react);
+    m->react = NULL;
+    m->nreact = 0;
     free(m->emoji);
     m->emoji = NULL;
     m->nemoji = 0;
@@ -761,6 +764,129 @@ static int ends_with_ci(const char *s, const char *suffix)
     return 1;
 }
 
+/* ---------------------------------------------------------------- reactions */
+
+/* Reads an emoji object ({id, name, animated}) into r's name, id and animated. */
+static int reaction_emoji(Reaction *r, const JNode *e)
+{
+    const char *id = id_of(e, "id"), *name = json_get_str(e, "name", NULL);
+    int b = 0;
+
+    memset(r, 0, sizeof(*r));
+    if (name == NULL && id == NULL) {
+        return 0;
+    }
+    copy_utf8(r->name, sizeof(r->name), name != NULL ? name : "");
+    copy_utf8(r->id, sizeof(r->id), id != NULL ? id : "");
+    r->animated = json_bool(json_get(e, "animated"), &b) ? b : 0;
+    return 1;
+}
+
+static int reaction_same(const Reaction *a, const Reaction *b)
+{
+    return a->id[0] != '\0' || b->id[0] != '\0' ? strcmp(a->id, b->id) == 0 : strcmp(a->name, b->name) == 0;
+}
+
+static void parse_reactions(Message *msg, const JNode *arr)
+{
+    const JNode *x;
+    int b;
+
+    if (arr == NULL || arr->type != J_ARR || arr->count == 0) {
+        return;
+    }
+    msg->react = (Reaction *)calloc(MODEL_MAX_REACTS, sizeof(Reaction));
+    if (msg->react == NULL) {
+        return;
+    }
+    for (x = arr->first; x != NULL && msg->nreact < MODEL_MAX_REACTS; x = x->next) {
+        Reaction *r = &msg->react[msg->nreact];
+
+        if (!reaction_emoji(r, json_get(x, "emoji"))) {
+            continue;
+        }
+        r->count = int_of(x, "count", 1);
+        b = 0;
+        r->me = json_bool(json_get(x, "me"), &b) ? b : 0;
+        msg->nreact++;
+    }
+    if (msg->nreact == 0) {
+        free(msg->react);
+        msg->react = NULL;
+    }
+}
+
+/* MESSAGE_REACTION_ADD / _REMOVE / _REMOVE_ALL / _REMOVE_EMOJI. */
+static void on_reaction(Model *m, const char *kind, const JNode *d)
+{
+    const char *cid = id_of(d, "channel_id"), *mid = id_of(d, "message_id"), *uid = id_of(d, "user_id");
+    Channel *c = cid != NULL ? model_find_channel(m, cid) : NULL;
+    Message *msg = (c != NULL && mid != NULL) ? model_find_message(c, mid) : NULL;
+    Reaction r;
+    int i, mine;
+
+    if (msg == NULL) {
+        return;
+    }
+    if (strcmp(kind, "REMOVE_ALL") == 0) {
+        free(msg->react);
+        msg->react = NULL;
+        msg->nreact = 0;
+        push_change(m, MC_MESSAGE_CHANGED, c->guild_id, c->id, mid);
+        return;
+    }
+    if (!reaction_emoji(&r, json_get(d, "emoji"))) {
+        return;
+    }
+    mine = uid != NULL && strcmp(uid, m->user_id) == 0;
+    for (i = 0; i < msg->nreact; i++) {
+        if (reaction_same(&msg->react[i], &r)) {
+            break;
+        }
+    }
+    if (strcmp(kind, "ADD") == 0) {
+        if (i == msg->nreact) {
+            if (msg->nreact >= MODEL_MAX_REACTS) {
+                return;
+            }
+            if (msg->react == NULL) {
+                msg->react = (Reaction *)calloc(MODEL_MAX_REACTS, sizeof(Reaction));
+                if (msg->react == NULL) {
+                    return;
+                }
+            }
+            msg->react[i] = r;
+            msg->react[i].count = 0;
+            msg->nreact++;
+        }
+        msg->react[i].count++;
+        if (mine) {
+            msg->react[i].me = 1;
+        }
+    } else {
+        if (i == msg->nreact) {
+            return;
+        }
+        if (strcmp(kind, "REMOVE_EMOJI") == 0) {
+            msg->react[i].count = 0;
+        } else {
+            msg->react[i].count--;
+            if (mine) {
+                msg->react[i].me = 0;
+            }
+        }
+        if (msg->react[i].count <= 0) {
+            memmove(&msg->react[i], &msg->react[i + 1], (size_t)(msg->nreact - i - 1) * sizeof(Reaction));
+            msg->nreact--;
+            if (msg->nreact == 0) {
+                free(msg->react);
+                msg->react = NULL;
+            }
+        }
+    }
+    push_change(m, MC_MESSAGE_CHANGED, c->guild_id, c->id, mid);
+}
+
 /* ---------------------------------------------------------------- embeds */
 
 #define MAX_EMBEDS_SHOWN 3
@@ -1110,6 +1236,7 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     tmp.emoji = tmp_emoji;
     tmp.nemoji = tmp_nemoji;
     parse_attachments(&tmp, msg);
+    parse_reactions(&tmp, json_get(msg, "reactions"));
     append_sticker_images(&tmp, msg);
     {
         const JNode *emb = json_get(msg, "embeds");
@@ -1534,6 +1661,14 @@ void model_gateway_event(Model *m, const GwEvent *ev)
         model_ingest_message(m, ev->d, 1);
     } else if (strcmp(n, "MESSAGE_UPDATE") == 0) {
         message_update(m, ev->d);
+    } else if (strcmp(n, "MESSAGE_REACTION_ADD") == 0) {
+        on_reaction(m, "ADD", ev->d);
+    } else if (strcmp(n, "MESSAGE_REACTION_REMOVE") == 0) {
+        on_reaction(m, "REMOVE", ev->d);
+    } else if (strcmp(n, "MESSAGE_REACTION_REMOVE_ALL") == 0) {
+        on_reaction(m, "REMOVE_ALL", ev->d);
+    } else if (strcmp(n, "MESSAGE_REACTION_REMOVE_EMOJI") == 0) {
+        on_reaction(m, "REMOVE_EMOJI", ev->d);
     } else if (strcmp(n, "MESSAGE_DELETE") == 0) {
         const char *cid = id_of(ev->d, "channel_id"), *mid = id_of(ev->d, "id");
 

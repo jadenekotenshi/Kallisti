@@ -86,6 +86,12 @@ before any OPENSTEP code:
      experimental switch, inline. Previews that Discord adds a moment after the message (MESSAGE_UPDATE) appear when
      they arrive. Stickers show as `[sticker: Wave]` and their PNG/GIF is in the picture list (Lottie stickers
      cannot be shown).
+   - Reactions: each message shows its reactions as a grey line of `[emoji count]` boxes (a `*` after the count marks
+     one you made); Unicode and custom emoji are drawn as pictures like everywhere else. They arrive with the
+     message and are kept current by the gateway's reaction events (the bot asks for the guild and DM reaction
+     intents, which need no Developer Portal switch).
+   - The message box grows as you type, up to about six lines, then scrolls. Return sends; Shift- or Alt-Return
+     starts a new line.
    - Unicode emoji: OPENSTEP's fonts have none, so Kallisti draws them as pictures. `app/emoji.pack` (2.5 MB, copied
      into the application bundle by `Makefile.openstep`) holds a 16x16 picture for each of the 3,838 emoji Twemoji 15.1
      has; `core/emoji.c` finds the emoji in a message -- skin tones, flags, keycaps, joined families, tag flags -- by

@@ -269,7 +269,7 @@ async def handler(ws):
                 await ws.send(frame(11))
             elif m['op'] == 2:
                 d = m['d']
-                assert d['token'] == TOKEN and d['intents'] == (1 | (1 << 9) | (1 << 12) | (1 << 15)), d
+                assert d['token'] == TOKEN and d['intents'] == (1 | (1 << 9) | (1 << 10) | (1 << 12) | (1 << 13) | (1 << 15)), d
                 state['seq'] = 100
                 await ws.send(frame(0, {'session_id': 'sess-1', 'resume_gateway_url': '%s://localhost:%d' % (SCHEME, PORT + 1),
                                         'user': {'id': '42', 'username': 'Kallisti-bot'},

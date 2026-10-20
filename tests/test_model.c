@@ -457,6 +457,58 @@ static void test_attachments(void)
     model_free(m);
 }
 
+static void test_reactions(void)
+{
+    Model *m = start();
+    Message *msg;
+    ModelChange ch[16];
+    const char *base = "\"channel_id\":\"201\",\"message_id\":\"20\"";
+    char json[800];
+
+    drain(m, ch, 16);
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"20\",\"channel_id\":\"201\",\"content\":\"hi\",\"author\":{\"id\":\"1\",\"username\":\"a\"},"
+             "\"reactions\":[{\"count\":3,\"me\":true,\"emoji\":{\"id\":null,\"name\":\"\xf0\x9f\x91\x8d\"}},"
+             "{\"count\":1,\"me\":false,\"emoji\":{\"id\":\"555\",\"name\":\"blobcat\",\"animated\":true}}]}");
+    msg = &model_find_channel(m, "201")->msgs[0];
+    CHECK(msg->nreact == 2 && msg->react[0].count == 3 && msg->react[0].me && msg->react[0].id[0] == '\0' &&
+          strcmp(msg->react[0].name, "\xf0\x9f\x91\x8d") == 0);
+    CHECK(strcmp(msg->react[1].id, "555") == 0 && strcmp(msg->react[1].name, "blobcat") == 0 && msg->react[1].animated && !msg->react[1].me);
+
+    /* someone else adds a thumbs-up, we add a new one, then it is taken back */
+    drain(m, ch, 16);
+    sprintf(json, "{%s,\"user_id\":\"9\",\"emoji\":{\"id\":null,\"name\":\"\xf0\x9f\x91\x8d\"}}", base);
+    dispatch(m, "MESSAGE_REACTION_ADD", json);
+    CHECK(msg->react[0].count == 4 && msg->react[0].me);
+    CHECK(drain(m, ch, 16) == 1 && ch[0].type == MC_MESSAGE_CHANGED);
+    sprintf(json, "{%s,\"user_id\":\"42\",\"emoji\":{\"id\":null,\"name\":\"\xf0\x9f\x8e\x89\"}}", base);
+    dispatch(m, "MESSAGE_REACTION_ADD", json);
+    CHECK(msg->nreact == 3 && msg->react[2].count == 1 && msg->react[2].me);
+    dispatch(m, "MESSAGE_REACTION_REMOVE", json);
+    CHECK(msg->nreact == 2);
+    sprintf(json, "{%s,\"user_id\":\"42\",\"emoji\":{\"id\":null,\"name\":\"\xf0\x9f\x91\x8d\"}}", base);
+    dispatch(m, "MESSAGE_REACTION_REMOVE", json);
+    CHECK(msg->react[0].count == 3 && !msg->react[0].me);
+
+    /* a custom emoji is matched by id; removing an emoji or everything */
+    sprintf(json, "{%s,\"user_id\":\"9\",\"emoji\":{\"id\":\"555\",\"name\":\"renamed\"}}", base);
+    dispatch(m, "MESSAGE_REACTION_ADD", json);
+    CHECK(msg->nreact == 2 && msg->react[1].count == 2);
+    sprintf(json, "{%s,\"emoji\":{\"id\":\"555\",\"name\":\"blobcat\"}}", base);
+    dispatch(m, "MESSAGE_REACTION_REMOVE_EMOJI", json);
+    CHECK(msg->nreact == 1);
+    sprintf(json, "{%s}", base);
+    dispatch(m, "MESSAGE_REACTION_REMOVE_ALL", json);
+    CHECK(msg->nreact == 0 && msg->react == NULL);
+
+    /* events for messages we do not have, and junk, change nothing */
+    drain(m, ch, 16);
+    dispatch(m, "MESSAGE_REACTION_ADD", "{\"channel_id\":\"201\",\"message_id\":\"999\",\"user_id\":\"9\",\"emoji\":{\"name\":\"x\"}}");
+    dispatch(m, "MESSAGE_REACTION_ADD", "{\"channel_id\":\"201\",\"message_id\":\"20\"}");
+    dispatch(m, "MESSAGE_REACTION_REMOVE", "{}");
+    CHECK(drain(m, ch, 16) == 0 && msg->nreact == 0);
+    model_free(m);
+}
+
 static void test_embeds(void)
 {
     Model *m = start();
@@ -765,6 +817,7 @@ int main(void)
     test_embeds();
     test_stickers();
     test_custom_emoji();
+    test_reactions();
     test_fuzz();
     TEST_DONE("model");
 }
