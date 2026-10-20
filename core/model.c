@@ -1792,6 +1792,31 @@ static void message_delete(Model *m, const char *channel_id, const char *message
     }
 }
 
+int model_ingest_older(Model *m, const char *channel_id, const JNode *arr, int limit)
+{
+    Channel *c = valid_id(channel_id) ? model_find_channel(m, channel_id) : NULL;
+    const JNode *msg;
+    int before, got = 0;
+
+    if (c == NULL || arr == NULL || arr->type != J_ARR) {
+        return -1;
+    }
+    before = c->nmsgs;
+    for (msg = arr->first; msg != NULL; msg = msg->next) {
+        got++;
+        model_ingest_message(m, msg, 0);
+        c = model_find_channel(m, channel_id);
+        if (c == NULL) {
+            return -1;
+        }
+    }
+    if (got < limit) {
+        c->history_end = 1;
+    }
+    push_change(m, MC_HISTORY, c->guild_id, c->id, NULL);
+    return c->nmsgs > before ? c->nmsgs - before : 0;
+}
+
 void model_ingest_history(Model *m, const char *channel_id, const JNode *arr)
 {
     Channel *c = valid_id(channel_id) ? model_find_channel(m, channel_id) : NULL;

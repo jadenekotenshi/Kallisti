@@ -244,6 +244,7 @@ static void pend_add(KClient *kc, long id, int kind, const char *channel_id)
     p = &kc->pend[kc->npend++];
     p->id = id;
     p->kind = kind;
+    p->older = 0;
     copy_str(p->channel_id, sizeof(p->channel_id), channel_id != NULL ? channel_id : "");
 }
 
@@ -301,8 +302,24 @@ static void handle_result(KClient *kc, const RestResult *res, KMs now)
         begin_gateway(kc, now);
         break;
     case REST_MESSAGES:
-        if (res->ok) {
+        if (res->ok && p.older) {
+            int added = model_ingest_older(&kc->model, p.channel_id, res->body, KC_OLDER_LIMIT);
+            Channel *oc = model_find_channel(&kc->model, p.channel_id);
+
+            if (added > 0) {
+                sprintf(msg, "Loaded %d older message%s%s.", added, added == 1 ? "" : "s",
+                        oc != NULL && oc->history_end ? " (that is the beginning of the channel)" : "");
+            } else if (oc != NULL && oc->history_end) {
+                strcpy(msg, "No older messages: that is the beginning of the channel.");
+            } else {
+                sprintf(msg, "No more older messages can be kept (the limit is %d per channel).", MODEL_MAX_MESSAGES);
+            }
+            emit(kc, KE_INFO, kc->state, msg);
+        } else if (res->ok) {
             model_ingest_history(&kc->model, p.channel_id, res->body);
+        } else if (p.older) {
+            sprintf(msg, "Could not load older messages: %.200s", res->error);
+            emit(kc, KE_ERROR, kc->state, msg);
         } else {
             sprintf(msg, "Could not load messages: %.200s", res->error);
             emit(kc, KE_ERROR, kc->state, msg);
@@ -1169,6 +1186,32 @@ int kc_send_message(KClient *kc, const char *channel_id, const char *text)
 int kc_fetch_file(KClient *kc, const char *url, unsigned long tag)
 {
     return kc_fetch_image_ex(kc, url, 0, 0, 1, 1, tag, KC_FETCH_FILE);
+}
+
+int kc_load_older(KClient *kc, const char *channel_id)
+{
+    Channel *c = model_find_channel(&kc->model, channel_id);
+    long id;
+
+    if (c == NULL || !c->history_loaded || c->nmsgs == 0 || !kc->started || pend_has_channel(kc, REST_MESSAGES, channel_id)) {
+        return -1;
+    }
+    if (c->history_end) {
+        return 1;
+    }
+    if (c->nmsgs >= MODEL_MAX_MESSAGES) {
+        return 2;
+    }
+    if (kc->npend >= KC_MAX_PENDING) {
+        return -1;
+    }
+    id = rest_get_messages(&kc->rest, channel_id, KC_OLDER_LIMIT, c->msgs[0].id);
+    if (id <= 0) {
+        return -1;
+    }
+    pend_add(kc, id, REST_MESSAGES, channel_id);
+    kc->pend[kc->npend - 1].older = 1;
+    return 0;
 }
 
 int kc_send_files(KClient *kc, const char *channel_id, const char *text, const RestFile *files, int nfiles)

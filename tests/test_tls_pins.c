@@ -23,6 +23,7 @@ int main(void)
     for (i = 0; i < 64; i++) der[i] = (u8)(i * 3 + 7);
     for (i = 0; i < 64; i++) other_der[i] = (u8)(i * 5 + 11);
 
+    mkdir("build", 0755);                          /* (a sanitizer run after `make clean` has no build/ yet) */
     remove(path);
     CHECK(tlspin_check(path, "irc.example.org", 6697, der, sizeof(der)) == TLSPIN_UNKNOWN);   /* no file */
     CHECK(tlspin_add(path, "irc.example.org", 6697, der, sizeof(der)) == 0);

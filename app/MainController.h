@@ -39,6 +39,7 @@
 - (NSString *)statusString;
 - (void)typeText:(NSString *)text;
 - (void)setDraft:(NSString *)text;
+- (void)anchorOnOldest;                          /* see ChannelPane */
 - (void)attachFiles:(NSArray *)paths;            /* as if dropped on the message box */
 - (id)inputView;                                 /* the views that take dropped files, for the tests */
 - (id)logView;

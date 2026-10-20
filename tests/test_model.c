@@ -596,11 +596,16 @@ static void test_format_log(void)
     Guild *g;
     char *log;
 
-    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"60\",\"channel_id\":\"201\",\"content\":\"first line\\nsecond line\",\"timestamp\":\"2026-10-19T10:00:00.000000+00:00\","
-             "\"edited_timestamp\":\"2026-10-19T10:01:00.000000+00:00\",\"author\":{\"id\":\"1\",\"username\":\"ann\"},"
-             "\"attachments\":[{\"filename\":\"cat.png\",\"url\":\"https://cdn.example/a/cat.png\",\"proxy_url\":\"https://media.example/a/cat.png?x=1\",\"width\":8,\"height\":8,\"content_type\":\"image/png\"}],"
-             "\"embeds\":[{\"type\":\"article\",\"title\":\"Cool Page\",\"description\":\"d1\\nd2\"}],"
-             "\"reactions\":[{\"count\":3,\"me\":true,\"emoji\":{\"id\":null,\"name\":\"\xf0\x9f\x91\x8d\"}},{\"count\":1,\"me\":false,\"emoji\":{\"id\":\"5\",\"name\":\"blob\"}}]}");
+    {
+        char json[1400];
+
+        strcpy(json, "{\"id\":\"60\",\"channel_id\":\"201\",\"content\":\"first line\\nsecond line\",\"timestamp\":\"2026-10-19T10:00:00.000000+00:00\",");
+        strcat(json, "\"edited_timestamp\":\"2026-10-19T10:01:00.000000+00:00\",\"author\":{\"id\":\"1\",\"username\":\"ann\"},");
+        strcat(json, "\"attachments\":[{\"filename\":\"cat.png\",\"url\":\"https://cdn.example/a/cat.png\",\"proxy_url\":\"https://media.example/a/cat.png?x=1\",\"width\":8,\"height\":8,\"content_type\":\"image/png\"}],");
+        strcat(json, "\"embeds\":[{\"type\":\"article\",\"title\":\"Cool Page\",\"description\":\"d1\\nd2\"}],");
+        strcat(json, "\"reactions\":[{\"count\":3,\"me\":true,\"emoji\":{\"id\":null,\"name\":\"\xf0\x9f\x91\x8d\"}},{\"count\":1,\"me\":false,\"emoji\":{\"id\":\"5\",\"name\":\"blob\"}}]}");
+        dispatch(m, "MESSAGE_CREATE", json);
+    }
     dispatch(m, "MESSAGE_CREATE", "{\"id\":\"61\",\"channel_id\":\"201\",\"content\":\"hi\",\"timestamp\":\"2026-10-21T10:00:00.000000+00:00\",\"author\":{\"id\":\"2\",\"username\":\"bob\"}}");
     c = model_find_channel(m, "201");
     g = model_find_guild(m, c->guild_id);
@@ -618,6 +623,85 @@ static void test_format_log(void)
         free(log);
     }
     CHECK(model_format_log(NULL, g, NULL) == NULL);
+    model_free(m);
+}
+
+/* ingest a JSON array of messages (ids newest first) as an older page */
+static int older_page(Model *m, const char *cid, const char *ids, int limit)
+{
+    JDoc doc;
+    char json[1500];
+    int added;
+    const char *p = ids;
+
+    strcpy(json, "[");
+    while (*p != '\0') {
+        char id[24];
+        int n = 0;
+
+        while (*p != '\0' && *p != ',') {
+            id[n++] = *p++;
+        }
+        id[n] = '\0';
+        if (*p == ',') {
+            p++;
+        }
+        sprintf(json + strlen(json), "%s{\"id\":\"%s\",\"channel_id\":\"%s\",\"content\":\"m%s\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}",
+                json[1] != '\0' ? "," : "", id, cid, id);
+    }
+    strcat(json, "]");
+    memset(&doc, 0, sizeof(doc));
+    added = model_ingest_older(m, cid, json_parse(&doc, json, strlen(json)), limit);
+    json_free(&doc);
+    return added;
+}
+
+static void test_older(void)
+{
+    Model *m = start();
+    Channel *c;
+    ModelChange ch[16];
+    JDoc doc;
+    const char *three = "[{\"id\":\"102\",\"channel_id\":\"201\",\"content\":\"m102\",\"author\":{\"id\":\"1\",\"username\":\"a\"}},"
+                        "{\"id\":\"101\",\"channel_id\":\"201\",\"content\":\"m101\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}]";
+    int i;
+
+    drain(m, ch, 16);
+    memset(&doc, 0, sizeof(doc));
+    model_ingest_history(m, "201", json_parse(&doc, three, strlen(three)));
+    json_free(&doc);
+    c = model_find_channel(m, "201");
+    CHECK(c->nmsgs == 2 && c->history_loaded && !c->history_end);
+    drain(m, ch, 16);
+    /* a full page (as many as asked for): added in order, the channel is not at its beginning yet */
+    CHECK(older_page(m, "201", "100,99,98", 3) == 3);
+    c = model_find_channel(m, "201");
+    CHECK(c->nmsgs == 5 && !c->history_end && strcmp(c->msgs[0].id, "98") == 0 && strcmp(c->msgs[2].id, "100") == 0 && strcmp(c->msgs[4].id, "102") == 0);
+    CHECK(drain(m, ch, 16) == 1 && ch[0].type == MC_HISTORY && strcmp(ch[0].channel_id, "201") == 0);
+    /* the same page again adds nothing */
+    CHECK(older_page(m, "201", "100,99,98", 3) == 0 && c->nmsgs == 5 && !c->history_end);
+    /* a short page is the beginning */
+    CHECK(older_page(m, "201", "97,96", 3) == 2);
+    c = model_find_channel(m, "201");
+    CHECK(c->nmsgs == 7 && c->history_end && strcmp(c->msgs[0].id, "96") == 0);
+    /* an empty page too; bad calls change nothing */
+    CHECK(older_page(m, "201", "", 3) == 0);
+    CHECK(older_page(m, "999", "5", 3) == -1 && model_ingest_older(m, "201", NULL, 3) == -1);
+    /* at the limit, older messages are not taken */
+    for (i = 0; c->nmsgs < MODEL_MAX_MESSAGES; i++) {
+        char id[24];
+
+        sprintf(id, "%d", 1000 + i);
+        {
+            char json[200];
+
+            sprintf(json, "{\"id\":\"%s\",\"channel_id\":\"201\",\"content\":\"x\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}", id);
+            dispatch(m, "MESSAGE_CREATE", json);
+        }
+        c = model_find_channel(m, "201");
+    }
+    CHECK(c->nmsgs == MODEL_MAX_MESSAGES);
+    CHECK(older_page(m, "201", "50,49", 3) == 0 && c->nmsgs == MODEL_MAX_MESSAGES && strcmp(c->msgs[0].id, "96") == 0);
     model_free(m);
 }
 
@@ -931,6 +1015,7 @@ int main(void)
     test_custom_emoji();
     test_reactions();
     test_typing();
+    test_older();
     test_format_log();
     test_resolve_reaction();
     test_fuzz();

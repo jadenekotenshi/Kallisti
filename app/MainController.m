@@ -507,6 +507,7 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
 - (void)typeText:(NSString *)text { [pane typeText:text]; }
 - (void)setDraft:(NSString *)text { [pane setDraft:text]; }
 - (void)attachFiles:(NSArray *)paths { [pane acceptDroppedFiles:paths]; }
+- (void)anchorOnOldest { [pane anchorOnOldest]; }
 - (id)inputView { return [pane inputView]; }
 - (id)logView { return [pane logView]; }
 - (void)updateTypingAt:(KMs)now { [pane updateTypingAt:now]; }

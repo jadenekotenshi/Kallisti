@@ -107,12 +107,16 @@ before any OPENSTEP code:
      pictures (the list's cell draws the text in pieces and the pictures between them), following Discord > Show Emoji
      as Pictures; with it off, or for an emoji the pack has no picture of, the row shows `:names:` as before. UNVERIFIED
      on OPENSTEP: the drawing uses NSImageCell and the stock text cell, and measures text with `NSFont widthOfString:`.
+   - Older history: Discord > Load Older Messages (Cmd-L) fetches the 100 messages before the oldest one the channel in
+     front shows and merges them in above, keeping the view on what you were reading; the status line says how many came
+     and when the beginning of the channel is reached. A channel holds up to 500 messages (the log is redrawn whole, so
+     more would make a slow machine slower), so Save Message Log... can reach that far back.
    - Server names are bold in the list, so they stand out from the channels under them.
    - Discord > Save Message Log... (Cmd-S) writes the messages held for the channel in front (a channel window if one is
      key, else the main window's) to a text file: a title, date separators, `[HH:MM] author: text`, embeds, reactions,
      and the address of each attachment. It is UTF-8, with emoji written as `:name:` when the emoji pack is loaded, so it
      reads sensibly even in an editor that knows no Unicode. Only what is in memory is saved (the latest 50 messages
-     loaded when the channel is opened, plus what has arrived since, up to 200).
+     loaded when the channel is opened, plus what has arrived since and any older pages you loaded, up to 500).
    - Reacting: Discord > React to a Message... (Cmd-R) lists the latest messages; pick one and type an emoji --
      `:thumbsup:`, a custom emoji's `:name:` (one seen in the channel), a pasted `<:name:id>`, or the emoji itself -- or
      choose from the Common menu. React adds yours, Remove Mine takes it back. The bot needs the Add Reactions

@@ -171,7 +171,7 @@ static NSColor *author_color(const char *name)
 
 - (void)dealloc
 {
-    [view release]; [messageScroll release]; [messageText release]; [inputScroll release]; [inputText release]; [typingLabel release];
+    [view release]; [messageScroll release]; [messageText release]; [inputScroll release]; [inputText release]; [typingLabel release]; [anchorId release];
     [channel release]; [normalFont release]; [boldFont release];
     [super dealloc];
 }
@@ -292,6 +292,14 @@ static NSColor *author_color(const char *name)
 }
 
 - (NSString *)typingString { return [typingLabel stringValue]; }
+
+- (void)anchorOnOldest
+{
+    Channel *c = channel ? model_find_channel(model, [channel cString]) : NULL;
+
+    [anchorId release];
+    anchorId = (c != NULL && c->nmsgs > 0) ? [S(c->msgs[0].id) retain] : nil;
+}
 
 - (NSString *)draft { return [inputText string]; }
 - (id)inputView { return inputText; }
@@ -484,6 +492,7 @@ static NSColor *author_color(const char *name)
     lastDay[0] = '\0';
     if (c == NULL) return;
     SSTrace("reload channel %s: %d messages", [channel cString], c->nmsgs);
+    anchorOffset = -1;
     if (inlineImages && imageSource != nil) {
         /* ask for the newest pictures first: the queue is short, and those are the ones being looked at */
         for (i = c->nmsgs - 1; i >= 0; i--) {
@@ -503,10 +512,18 @@ static NSColor *author_color(const char *name)
 
         SSTrace("  message %s: %d attachments, %d reactions, %d custom emoji, %d chars", tm->id, tm->natt, tm->nreact, tm->nemoji,
                 (int)strlen(tm->text));
+        if (useAnchor && anchorId != nil && strcmp(tm->id, [anchorId cString]) == 0) anchorOffset = (int)[[messageText textStorage] length];
         [self appendMessage:&c->msgs[i]];
     }
     SSTrace("reload done");
-    [messageText scrollRangeToVisible:NSMakeRange([[messageText textStorage] length], 0)];
+    if (anchorOffset >= 0) {                              /* older messages were added above: stay where we were reading */
+        [messageText scrollRangeToVisible:NSMakeRange((unsigned)anchorOffset, 0)];
+    } else {
+        [messageText scrollRangeToVisible:NSMakeRange([[messageText textStorage] length], 0)];
+    }
+    useAnchor = NO;
+    [anchorId release];
+    anchorId = nil;
 }
 
 - (void)setChannel:(NSString *)channelId
@@ -557,9 +574,13 @@ static NSColor *author_color(const char *name)
         }
         model_mark_read(model, change->channel_id);
         break;
+    case MC_HISTORY:
+        useAnchor = YES;
+        if (strcmp(change->channel_id, [channel cString]) == 0) [self reload];
+        useAnchor = NO;
+        break;
     case MC_MESSAGE_CHANGED:
     case MC_MESSAGE_REMOVED:
-    case MC_HISTORY:
         if (strcmp(change->channel_id, [channel cString]) == 0) [self reload];
         break;
     default:

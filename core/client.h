@@ -22,21 +22,24 @@
 #include "img.h"
 
 enum { KC_IDLE = 0, KC_VERIFYING, KC_CONNECTING, KC_ONLINE, KC_FATAL, KC_STOPPED };
-enum { KE_STATE = 1, KE_ERROR, KE_CHANNEL };
+enum { KE_STATE = 1, KE_ERROR, KE_CHANNEL, KE_INFO };
 
 typedef struct {
     int type;                    /* KE_STATE: the client's state changed; KE_ERROR: something to tell the user;
-                                  * KE_CHANNEL: a conversation the user asked for is ready, show it */
+                                  * KE_CHANNEL: a conversation the user asked for is ready, show it;
+                                  * KE_INFO: how something the user asked for went, for the status line */
     int state;                   /* KE_STATE: the new KC_* state */
     char text[240];              /* a sentence for the status line or an alert; KE_CHANNEL: the channel id */
 } KEvent;
 
 #define KC_MAX_PENDING 24
 #define KC_HISTORY_LIMIT 50
+#define KC_OLDER_LIMIT 100          /* messages asked for by kc_load_older (Discord's most per request) */
 
 typedef struct {
     long id;
     int kind;
+    int older;                   /* a REST_MESSAGES for messages before the oldest held, not the first load */
     char channel_id[24];
 } KcPending;
 
@@ -174,6 +177,12 @@ int kc_send_files(KClient *kc, const char *channel_id, const char *text, const R
 
 /* Lets the channel see that we are typing (about 10 seconds' worth). Silent on failure. Returns 0 or a REST_E_* code. */
 int kc_typing(KClient *kc, const char *channel_id);
+
+/* Asks for the page of messages before the oldest one the channel holds (the answer arrives as MC_HISTORY, then a KE_INFO).
+ * Returns 0 if asked, 1 if there is nothing older, 2 if the channel already holds as many messages as are kept
+ * (MODEL_MAX_MESSAGES), -1 if it cannot be done now (channel unknown or its first load not finished, or a request is
+ * already out). */
+int kc_load_older(KClient *kc, const char *channel_id);
 
 /* Adds our reaction to a message, or (remove != 0) takes it back. `emoji` is the emoji itself in UTF-8, or "name:id" for a
  * custom one. Returns 0 or a REST_E_* code; a failure comes back as a KE_ERROR, success as the gateway's reaction event. */

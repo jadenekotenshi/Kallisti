@@ -35,6 +35,8 @@ typedef struct {
     int nstates;
     char errors[8][240];
     int nerrors;
+    char infos[4][240];
+    int ninfos;
     char channels[4][24];
     int nchannels;
     int nimages, image_ok[8], image_frames[8];
@@ -58,6 +60,8 @@ static void drain_events(KClient *kc, Seen *s)
             s->nstates++;
         } else if (ev.type == KE_ERROR && s->nerrors < 8) {
             strcpy(s->errors[s->nerrors++], ev.text);
+        } else if (ev.type == KE_INFO && s->ninfos < 4) {
+            strcpy(s->infos[s->ninfos++], ev.text);
         } else if (ev.type == KE_CHANNEL && s->nchannels < 4) {
             strcpy(s->channels[s->nchannels++], ev.text);
         }
@@ -117,6 +121,7 @@ static int c_history(KClient *kc, Seen *s)
 
     return c != NULL && c->history_loaded;
 }
+static int c_info1(KClient *kc, Seen *s) { return s->ninfos >= 1; }
 static int c_error1(KClient *kc, Seen *s) { return s->nerrors >= 1; }
 static int c_has_hello(KClient *kc, Seen *s)
 {
@@ -523,6 +528,23 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(run_until(&kc, &seen, c_error1, 15000));
         CHECK(strstr(seen.errors[0], "Missing Permissions") != NULL);
         CHECK(kc_react(&kc, "200", mid, "", 0) < 0 && kc_react(&kc, "200", "abc", "x", 0) < 0 && kc_react(&kc, "bad", mid, "x", 0) < 0);
+    }
+
+    /* older messages: the page before the oldest one held is asked for, merged in order, and the end of the channel noticed */
+    {
+        Channel *oc = model_find_channel(&kc.model, "200");
+        int had = oc->nmsgs;
+
+        seen.ninfos = 0;
+        CHECK(kc_load_older(&kc, "201") == -1 && kc_load_older(&kc, "999") == -1);      /* not loaded yet; unknown */
+        CHECK(kc_load_older(&kc, "200") == 0);
+        CHECK(kc_load_older(&kc, "200") == -1);                                         /* one request at a time */
+        CHECK(run_until(&kc, &seen, c_info1, 15000));
+        oc = model_find_channel(&kc.model, "200");
+        CHECK(strstr(seen.infos[0], "Loaded 9 older messages") != NULL && strstr(seen.infos[0], "beginning") != NULL);
+        CHECK(oc->nmsgs == had + 9 && oc->history_end && strcmp(oc->msgs[0].text, "older 1") == 0 && strcmp(oc->msgs[8].text, "older 9") == 0 &&
+              strcmp(oc->msgs[9].text, "oldest") == 0);
+        CHECK(kc_load_older(&kc, "200") == 1);                                          /* nothing before the beginning */
     }
 
     /* files attached to a message: sent as multipart, byte for byte (the server checks the pattern and the names) */

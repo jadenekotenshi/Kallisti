@@ -24,7 +24,7 @@
 #include "gateway.h"
 #include "json.h"
 
-#define MODEL_MAX_MESSAGES 200       /* kept per channel; older ones fall off */
+#define MODEL_MAX_MESSAGES 500       /* kept per channel; older ones fall off */
 #define MODEL_MAX_CHANGES 128
 
 enum { CH_TEXT = 0, CH_DM = 1, CH_GROUP_DM = 3, CH_CATEGORY = 4, CH_ANNOUNCEMENT = 5 };
@@ -101,6 +101,7 @@ typedef struct {
     int unread;                  /* messages that arrived while nobody had marked the channel read */
     int mentions;                /* of those, how many mention us */
     int history_loaded;
+    int history_end;             /* an older-messages request came back short: there is nothing before msgs[0] */
     Typer typing[MODEL_MAX_TYPERS];     /* who is typing, from TYPING_START events */
     int ntyping;
 } Channel;
@@ -153,6 +154,10 @@ void model_gateway_event(Model *m, const GwEvent *ev);
  * object a POST returns.  `arr`/`msg` is the parsed JSON body. */
 void model_ingest_guilds(Model *m, const JNode *arr);
 void model_ingest_channels(Model *m, const char *guild_id, const JNode *arr);
+/* Merges a page of OLDER messages (a reply to a request for `limit` messages before the oldest one held). Returns how many
+ * were added, or -1 for a bad channel or reply; marks the channel as at its beginning if fewer than `limit` came. Always
+ * queues MC_HISTORY when it returns 0 or more. */
+int model_ingest_older(Model *m, const char *channel_id, const JNode *arr, int limit);
 void model_ingest_history(Model *m, const char *channel_id, const JNode *arr);
 void model_ingest_message(Model *m, const JNode *msg, int from_gateway);
 /* A direct-message channel object (from READY, CHANNEL_CREATE, or the reply to opening a DM): it goes into the

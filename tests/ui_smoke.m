@@ -65,6 +65,11 @@ static BOOL hasPicMessage(AppController *app)
     return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
 }
 
+static BOOL hasOlderMessages(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"older 1"].location != NSNotFound;
+}
+
 static BOOL hasFileMessage(AppController *app)
 {
     return [[[app mainController] messageString] rangeOfString:@"[attachment: notes.bin]"].location != NSNotFound;
@@ -439,6 +444,23 @@ int main(int argc, char **argv)
         [w closeWindow];
         [app channelWindowClosed:w];
         CHECK([app windowForChannel:@"200"] == nil);
+    }
+
+    /* older messages are loaded above the ones shown, and the end of the channel is reported */
+    {
+        NSString *before = [main messageString];
+        NSString *after;
+
+        CHECK([before rangeOfString:@"older 1"].location == NSNotFound);
+        [app loadOlder:nil];
+        CHECK(waitFor(hasOlderMessages, app, 15.0));
+        after = [main messageString];
+        CHECK([after rangeOfString:@"older 9"].location != NSNotFound && [after rangeOfString:@"oldest"].location != NSNotFound);
+        CHECK([after rangeOfString:@"older 1"].location < [after rangeOfString:@"older 9"].location &&
+              [after rangeOfString:@"older 9"].location < [after rangeOfString:@"oldest"].location);
+        CHECK([[main statusString] rangeOfString:@"beginning of the channel"].location != NSNotFound);
+        [app loadOlder:nil];                                                    /* nothing before the beginning */
+        CHECK([[main statusString] rangeOfString:@"No older messages"].location != NSNotFound);
     }
 
     /* a picture attachment: listed, fetched on request, shown in a window of its own */

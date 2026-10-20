@@ -15,6 +15,9 @@
     NSTextView   *messageText;
     NSScrollView *inputScroll;           /* around inputText; grows with what is typed, up to a limit */
     NSTextView   *inputText;
+    NSString     *anchorId;              /* the oldest message before older ones were asked for: the view returns to it */
+    BOOL          useAnchor;
+    int           anchorOffset;
     NSTextField  *typingLabel;           /* "Ann is typing..." */
     float         inputHeight;           /* current height of the input; 0 until laid out */
     NSString     *channel;               /* id of the channel shown, or nil */
@@ -43,6 +46,7 @@
 - (id)inputView;
 - (id)logView;            /* put text in the input without sending, for the tests */
 - (NSString *)draft;
+- (void)anchorOnOldest;                        /* before asking for older messages: keep the view where it is when they arrive */
 - (void)updateTypingAt:(KMs)now;                /* refresh the "is typing" line; call it often, it is cheap */
 - (NSString *)typingString;
 - (float)inputHeight;

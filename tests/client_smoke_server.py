@@ -171,6 +171,9 @@ async def rest_conn(reader, writer):
                 await reply(writer, HTTPStatus.UNAUTHORIZED, {'message': '401: Unauthorized', 'code': 0})
             elif method == 'GET' and path == '/api/v10/users/@me':
                 await reply(writer, HTTPStatus.OK, {'id': '42', 'username': 'Kallisti-bot', 'bot': True})
+            elif method == 'GET' and path == '/api/v10/channels/200/messages' and 'before=10' in query:
+                # the page before the oldest message: nine messages, a short page, so that is the beginning
+                await reply(writer, HTTPStatus.OK, [msg(i, 'older %d' % i) for i in range(9, 0, -1)])
             elif method == 'GET' and path == '/api/v10/channels/200/messages':
                 mentions = [{'id': '42', 'username': 'Kallisti-bot'}]
                 await reply(writer, HTTPStatus.OK, [msg(12, 'newest <@42>', mentions=mentions), msg(11, 'middle'), msg(10, 'oldest')],

@@ -24,6 +24,7 @@
 - (NSString *)messageString;
 - (void)typeText:(NSString *)text;
 - (void)updateTypingAt:(KMs)now;
+- (void)anchorOnOldest;
 - (BOOL)isKeyWindow;
 @end
 

@@ -100,6 +100,7 @@ static KMs app_now_ms(void)
 - (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target;
 - (void)attachFile:(id)sender;
 - (void)saveLog:(id)sender;
+- (void)loadOlder:(id)sender;
 @end
 
 @implementation AppController
@@ -184,6 +185,7 @@ static KMs app_now_ms(void)
     [self addItem:@"Attachments in This Channel..." action:@selector(showImages:) key:@"i" target:self toMenu:m];
     [self addItem:@"React to a Message..." action:@selector(showReact:) key:@"r" target:self toMenu:m];
     [self addItem:@"Attach File..." action:@selector(attachFile:) key:@"u" target:self toMenu:m];
+    [self addItem:@"Load Older Messages" action:@selector(loadOlder:) key:@"l" target:self toMenu:m];
     [self addItem:@"Save Message Log..." action:@selector(saveLog:) key:@"s" target:self toMenu:m];
     [self addItem:@"Show Images Inline (Experimental)" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
     inlineItem = [m itemWithTitle:@"Show Images Inline (Experimental)"];
@@ -423,6 +425,8 @@ static KMs app_now_ms(void)
         if (ev.type == KE_STATE) {
             [mainController setStatus:S(ev.text)];
             if (ev.state == KC_FATAL) { fatal = YES; fatalText = S(ev.text); }
+        } else if (ev.type == KE_INFO) {
+            [mainController setStatus:S(ev.text)];
         } else if (ev.type == KE_ERROR) {
             [mainController setStatus:S(ev.text)];
             [mainController appendNotice:S(ev.text)];
@@ -594,6 +598,38 @@ static KMs app_now_ms(void)
 - (BOOL)channelWindow:(ChannelWindow *)cw didDropFiles:(NSArray *)paths caption:(NSString *)caption forChannel:(NSString *)channelId
 {
     return [self sendFiles:paths caption:caption toChannel:channelId notify:cw];
+}
+
+/* Discord > Load Older Messages: the next page before the oldest message the channel in front shows. The view stays on
+ * what was the oldest message, so the new ones are just above. */
+- (void)loadOlder:(id)sender
+{
+    NSString *cid = [mainController currentChannel];
+    id front = mainController;
+    unsigned i;
+    int rc;
+
+    for (i = 0; i < [channelWindows count]; i++) {
+        if ([[channelWindows objectAtIndex:i] isKeyWindow]) {
+            cid = [[channelWindows objectAtIndex:i] channelId];
+            front = [channelWindows objectAtIndex:i];
+        }
+    }
+    if (!kc || cid == nil) {
+        NSRunAlertPanel(@"No channel", @"Choose a channel first.", @"OK", nil, nil);
+        return;
+    }
+    [front anchorOnOldest];
+    rc = kc_load_older(kc, [cid cString]);
+    if (rc == 0) {
+        [mainController setStatus:@"Loading older messages..."];
+    } else if (rc == 1) {
+        [mainController setStatus:@"No older messages: that is the beginning of the channel."];
+    } else if (rc == 2) {
+        [mainController setStatus:[NSString stringWithFormat:@"This channel already holds %d messages, the most Kallisti keeps.", MODEL_MAX_MESSAGES]];
+    } else {
+        [mainController setStatus:@"Older messages are not available yet (the channel is still loading, or a request is under way)."];
+    }
 }
 
 /* Discord > Save Message Log...: the messages the channel shows, as a UTF-8 text file. The channel is that of the
