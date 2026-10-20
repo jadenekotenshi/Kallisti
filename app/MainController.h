@@ -32,6 +32,7 @@
 /* Also used by the tests, which drive the window the way a user would. */
 - (NSArray *)listLabels;
 #ifndef OPENSTEP
+- (void)copyCellForTest;
 - (NSBitmapImageRep *)renderRow:(int)row width:(float)w;      /* the list row as drawn, for the tests */
 #endif
 - (NSString *)messageString;

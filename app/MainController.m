@@ -89,6 +89,16 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
     [super dealloc];
 }
 
+/* NSCell copies itself bit for bit (AppKit copies cells while drawing, on OPENSTEP at least), which would leave the copy
+ * pointing at `raw` without a retain of its own and so release it once too often when it dies: a crash a little later. */
+- (id)copyWithZone:(NSZone *)zone
+{
+    EmojiCell *c = [super copyWithZone:zone];
+
+    c->raw = [raw retain];
+    return c;
+}
+
 /* The cell's own text drawing for one piece, in the cell's colour and font. */
 - (float)drawPiece:(NSString *)piece at:(float)x frame:(NSRect)frame inView:(NSView *)view
 {
@@ -462,6 +472,14 @@ static NSData *raw_label(const char *lead, const char *name, const char *tail, i
 }
 
 #ifndef OPENSTEP
+/* For the tests: the cell is copied and the copy dropped, as AppKit may do while drawing. */
+- (void)copyCellForTest
+{
+    id c = [emojiCell copy];
+
+    [c release];
+}
+
 /* For the tests: row `row` of the list drawn the way the table draws it, as pixels. */
 - (NSBitmapImageRep *)renderRow:(int)row width:(float)w
 {

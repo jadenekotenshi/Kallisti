@@ -739,6 +739,14 @@ int main(int argc, char **argv)
         [app setEmojiPictures:YES];
         [main typeText:@"newchan"];
         CHECK(waitFor(hasEmojiChannel, app, 10.0));
+        /* selecting channels whose names hold emoji (a joined sequence too) rebuilds the list and must not crash */
+        [(id)main copyCellForTest];                         /* a copied cell must hold its own reference to its text */
+        [(id)main copyCellForTest];
+        [main selectChannelWithId:@"230"];
+        CHECK([[main currentChannel] isEqualToString:@"230"]);
+        [main selectChannelWithId:@"231"];
+        CHECK([[main currentChannel] isEqualToString:@"231"]);
+        [main selectChannelWithId:@"200"];
 
         /* the same emoji in a channel's name is drawn in the list: coloured pixels where the text alone has only greys */
         {
