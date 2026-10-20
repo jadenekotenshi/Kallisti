@@ -6,7 +6,7 @@ A native Discord client for OPENSTEP 4.2, in C89/Objective-C. Fifth in the famil
 core (copy-and-diverge, not a shared library) and reuses its hardware-proven AppKit patterns (hand-built
 windows, a polled run-loop timer, the entropy-seeding panel). One window shows every server and channel.
 
-**Status: v0.1.0.** Runs on real OPENSTEP 4.2 (i386): signing in, servers and channels, history and live
+**Status: v0.1.1.** Runs on real OPENSTEP 4.2 (i386): signing in, servers and channels, history and live
 messages, sending, direct messages, inline pictures and GIF animation, custom and Unicode emoji, reactions, file
 downloads and uploads (including drag and drop), typing indicators, proxies and saving a channel's log have all
 been used there. The m68k and SPARC builds, the fat binary and the installer package have not been tried yet.
