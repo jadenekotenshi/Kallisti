@@ -153,7 +153,7 @@ static NSColor *author_color(const char *name)
      * the scroll view its height never goes below the clip view's, so the input would grow on its own. */
     NSString *s = [inputText string];
     float avail = [inputText frame].size.width - 12.0;
-    float lineH = [normalFont ascender] - [normalFont descender] + [normalFont leading];
+    float lineH = [normalFont ascender] - [normalFont descender] + 2.0;
     float spaceW = text_width(normalFont, @" ");
     unsigned i, n = [s length], start = 0;
     int lines = 0;
