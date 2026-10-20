@@ -40,4 +40,6 @@
 /* The thumbnail for an attachment address if it is on hand; otherwise nil, and the source starts fetching it and
  * will have the pane draw itself again when it arrives. */
 - (NSImage *)inlineImageForURL:(NSString *)url width:(int)w height:(int)h jpeg:(BOOL)isJpeg;
+/* The picture of a custom emoji, likewise (nil until it has been fetched). */
+- (NSImage *)inlineEmojiImageForID:(NSString *)emojiId;
 @end

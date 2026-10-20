@@ -333,6 +333,13 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(seen.image_ok[0] && seen.image_w[0] == 300);
         kc.resize_any_host = 1;
 
+        /* KC_FETCH_RAW: the address goes out untouched even on a host that would take parameters */
+        seen.nimages = 0;
+        sprintf(u, "%s/plainfetch?token=abc", base);
+        CHECK(kc_fetch_image_ex(&kc, u, 2000, 1000, 800, 600, 3, KC_FETCH_RAW) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_tag[0] == 3);
+
         /* a GIF (the first frame of an animation) comes back like any other picture */
         seen.nimages = 0;
         sprintf(u, "%s/animated.gif", base);

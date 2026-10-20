@@ -34,6 +34,7 @@
     NSMutableSet        *thumbsAsked;
     BOOL                inlineImages;      /* the experimental inline-pictures switch */
     NSMenuItem          *inlineItem;
+    NSString            *emojiBase;        /* where custom emoji pictures live; tests point it at the fake server */
     NSString          *restHost, *gatewayURL;   /* tests aim the client at a fake server; nil: Discord */
     int                restPort, restTLS;
     int                resizeAnyHost;      /* tests: the fake server stands in for Discord's media proxy */
@@ -51,6 +52,7 @@
 - (NSArray *)imageItemsForCurrentChannel;
 - (void)openImageItem:(ImageItem *)item;
 - (NSArray *)imageWindows;
+- (void)setEmojiBase:(NSString *)base;      /* default https://cdn.discordapp.com/emojis/ */
 - (void)setInlineImages:(BOOL)on;           /* the experimental switch (Discord menu), also for the tests */
 - (BOOL)inlineImagesEnabled;
 - (KClient *)client;

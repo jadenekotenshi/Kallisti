@@ -44,6 +44,7 @@ typedef struct {
 #define KC_IMAGE_MAX_H 600UL
 #define KC_IMAGE_QUEUE 4
 #define KC_FETCH_JPEG 1             /* ask the media proxy for a JPEG instead of a PNG (for photographs) */
+#define KC_FETCH_RAW 2              /* fetch the address exactly as given (an emoji's own, which carries its size) */
 #define KC_IMAGE_BODY_MAX (12L * 1024L * 1024L)
 
 /* A fetched picture, ready for AppKit: an uncompressed TIFF. */

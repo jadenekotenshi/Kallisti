@@ -580,6 +580,47 @@ static void test_stickers(void)
     model_free(m);
 }
 
+static void test_custom_emoji(void)
+{
+    Model *m = start();
+    Message *msg;
+    char json[2000];
+    int i;
+
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"10\",\"channel_id\":\"201\",\"content\":\"hi <:blob:123> and <a:dance:456>!\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}");
+    msg = &model_find_channel(m, "201")->msgs[0];
+    CHECK(strcmp(msg->text, "hi :blob: and :dance:!") == 0 && msg->nemoji == 2 && msg->emoji != NULL);
+    CHECK(msg->emoji[0].off == 3 && msg->emoji[0].len == 6 && strcmp(msg->emoji[0].id, "123") == 0 && !msg->emoji[0].animated &&
+          strncmp(msg->text + msg->emoji[0].off, ":blob:", 6) == 0);
+    CHECK(msg->emoji[1].off == 14 && msg->emoji[1].len == 7 && strcmp(msg->emoji[1].id, "456") == 0 && msg->emoji[1].animated &&
+          strncmp(msg->text + msg->emoji[1].off, ":dance:", 7) == 0);
+    /* no emoji, no list; malformed tags stay text */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"11\",\"channel_id\":\"201\",\"content\":\"plain <:bad:> <:x:12a> <::5>\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}");
+    msg = &model_find_channel(m, "201")->msgs[1];
+    CHECK(msg->emoji == NULL && msg->nemoji == 0);
+    /* mentions before an emoji shift its offset by what they became */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"12\",\"channel_id\":\"201\",\"content\":\"<@7> <:e:99>\",\"author\":{\"id\":\"1\",\"username\":\"a\"},\"mentions\":[{\"id\":\"7\",\"username\":\"seven\"}]}");
+    msg = &model_find_channel(m, "201")->msgs[2];
+    CHECK(strcmp(msg->text, "@seven :e:") == 0 && msg->nemoji == 1 && msg->emoji[0].off == 7 && msg->emoji[0].len == 3);
+    /* a crowd: only the first MODEL_MAX_EMOJI are recorded, the rest stay as text */
+    strcpy(json, "{\"id\":\"13\",\"channel_id\":\"201\",\"content\":\"");
+    for (i = 0; i < 30; i++) {
+        strcat(json, "<:e:77>");
+    }
+    strcat(json, "\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}");
+    dispatch(m, "MESSAGE_CREATE", json);
+    msg = &model_find_channel(m, "201")->msgs[3];
+    CHECK(msg->nemoji == MODEL_MAX_EMOJI && strlen(msg->text) == 30 * 3);
+    /* an edit re-reads the emoji */
+    dispatch(m, "MESSAGE_UPDATE", "{\"id\":\"10\",\"channel_id\":\"201\",\"content\":\"now <:new:5>\",\"edited_timestamp\":\"t\"}");
+    msg = model_find_message(model_find_channel(m, "201"), "10");
+    CHECK(strcmp(msg->text, "now :new:") == 0 && msg->nemoji == 1 && strcmp(msg->emoji[0].id, "5") == 0 && msg->emoji[0].off == 4);
+    dispatch(m, "MESSAGE_UPDATE", "{\"id\":\"10\",\"channel_id\":\"201\",\"content\":\"none\",\"edited_timestamp\":\"t\"}");
+    msg = model_find_message(model_find_channel(m, "201"), "10");
+    CHECK(msg->emoji == NULL && msg->nemoji == 0);
+    model_free(m);
+}
+
 static void test_direct_messages(void)
 {
     Model *m = start();
@@ -722,6 +763,7 @@ int main(void)
     test_attachments();
     test_embeds();
     test_stickers();
+    test_custom_emoji();
     test_fuzz();
     TEST_DONE("model");
 }

@@ -30,6 +30,7 @@ enum { CH_TEXT = 0, CH_DM = 1, CH_GROUP_DM = 3, CH_CATEGORY = 4, CH_ANNOUNCEMENT
 #define MODEL_DM_GUILD "@me"            /* the pseudo-server that holds the direct-message channels */
 
 #define MODEL_MAX_ATTACHMENTS 6
+#define MODEL_MAX_EMOJI 24
 
 typedef struct {
     char url[480];               /* where to fetch it: Discord's media proxy URL if it sent one */
@@ -39,6 +40,13 @@ typedef struct {
     int is_jpeg;                 /* a JPEG original: ask the media proxy for a JPEG (a tenth the bytes of a PNG) */
     int from_embed;              /* the picture of an embed (a link preview, an image link), not a file attached */
 } Attachment;
+
+/* A custom emoji in a message's text: the ":name:" at text[off .. off+len) stands for the picture of emoji `id`. */
+typedef struct {
+    int off, len;
+    char id[24];
+    int animated;
+} Emoji;
 
 typedef struct {
     char id[24];
@@ -51,6 +59,8 @@ typedef struct {
     int type;                    /* Discord's message type: 0 default, 19 reply, others are system messages */
     Attachment *att;             /* the first few attachments and embed pictures, or NULL; owned by the model */
     int natt;
+    Emoji *emoji;                /* the custom emoji in text (up to MODEL_MAX_EMOJI), or NULL; owned */
+    int nemoji;
     char *embeds;                /* the embeds as plain lines ("| title", "| text", "[image: ...]"), or NULL; owned */
 } Message;
 

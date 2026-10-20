@@ -1,6 +1,7 @@
 #import "ChannelPane.h"
 #import "UIHelpers.h"
 #include <string.h>
+#include <stdlib.h>
 #include "ktime.h"
 
 #define INPUT_HEIGHT 24.0
@@ -113,7 +114,30 @@ static NSColor *author_color(const char *name)
     [self appendString:[NSString stringWithFormat:@"[%s] ", hm] color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:S(m->author) color:author_color(m->author) font:boldFont];
     [self appendString:@": " color:[NSColor blackColor] font:normalFont];
-    [self appendString:S(m->text) color:[NSColor blackColor] font:normalFont];
+    if (inlineImages && imageSource != nil && m->nemoji > 0) {
+        /* the text, with each custom emoji whose picture is on hand drawn as that picture instead of ":name:" */
+        size_t at = 0, len = strlen(m->text);
+        int ei;
+
+        for (ei = 0; ei < m->nemoji; ei++) {
+            const Emoji *e = &m->emoji[ei];
+            NSImage *img = [imageSource inlineEmojiImageForID:S(e->id)];
+            char *seg;
+
+            if (img == nil || (size_t)e->off < at || (size_t)(e->off + e->len) > len) continue;
+            seg = (char *)malloc((size_t)e->off - at + 1);
+            if (seg == NULL) break;
+            memcpy(seg, m->text + at, (size_t)e->off - at);
+            seg[(size_t)e->off - at] = '\0';
+            [self appendString:S(seg) color:[NSColor blackColor] font:normalFont];
+            free(seg);
+            [[messageText textStorage] appendAttributedString:ui_image_attachment(img)];
+            at = (size_t)(e->off + e->len);
+        }
+        [self appendString:S(m->text + at) color:[NSColor blackColor] font:normalFont];
+    } else {
+        [self appendString:S(m->text) color:[NSColor blackColor] font:normalFont];
+    }
     if (m->edited) [self appendString:@" (edited)" color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];
     if (m->embeds != NULL && m->embeds[0] != '\0') {          /* link previews and other embeds, one grey line each */

@@ -64,15 +64,33 @@ static BOOL hasPicMessage(AppController *app)
     return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
 }
 
+static BOOL hasEmojiText(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"cool :blob: and :party: yes"].location != NSNotFound;
+}
+
+static BOOL hasEmojiPictures(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@":blob:"].location == NSNotFound &&
+           [[[app mainController] messageString] rangeOfString:@":party:"].location == NSNotFound;
+}
+
 static BOOL hasTwoAttachmentChars(AppController *app)
 {
     unichar obj = 0xFFFC;
     NSString *t = [[app mainController] messageString];
     NSRange first = [t rangeOfString:[NSString stringWithCharacters:&obj length:1]];
 
-    if (first.location == NSNotFound) return NO;
-    return [t rangeOfString:[NSString stringWithCharacters:&obj length:1] options:0
-                      range:NSMakeRange(first.location + 1, [t length] - first.location - 1)].location != NSNotFound;
+    unsigned n = 0, pos = 0;
+    NSRange r;
+    NSString *marker = [NSString stringWithCharacters:&obj length:1];
+
+    (void)first;
+    while ((r = [t rangeOfString:marker options:0 range:NSMakeRange(pos, [t length] - pos)]).location != NSNotFound) {
+        n++;
+        pos = r.location + 1;
+    }
+    return n >= 4;
 }
 
 static BOOL hasEmbedText(AppController *app)
@@ -261,6 +279,24 @@ int main(int argc, char **argv)
         }
     }
 
+    /* custom emoji: ":name:" text, and with the inline switch the pictures stand in for them */
+    [app setEmojiBase:[NSString stringWithFormat:@"http://localhost:%d/img/emoji/", atoi(argv[3])]];
+    [main typeText:@"emoji"];
+    CHECK(waitFor(hasEmojiText, app, 10.0));
+    {
+        unichar obj = 0xFFFC;
+        NSString *marker = [NSString stringWithCharacters:&obj length:1];
+        NSUInteger before = countOf([main messageString], marker);
+
+        [app setInlineImages:YES];
+        CHECK(waitFor(hasEmojiPictures, app, 20.0));
+        CHECK([[main messageString] rangeOfString:@"cool "].location != NSNotFound && [[main messageString] rangeOfString:@" yes"].location != NSNotFound);
+        CHECK([[main messageString] rangeOfString:@":blob:"].location == NSNotFound && [[main messageString] rangeOfString:@":party:"].location == NSNotFound);
+        CHECK(countOf([main messageString], marker) >= before + 2);
+        [app setInlineImages:NO];
+        CHECK([[main messageString] rangeOfString:@"cool :blob: and :party: yes"].location != NSNotFound);
+    }
+
     /* embeds: the preview's lines under the message, its picture in the list, and a late preview (MESSAGE_UPDATE) */
     [main typeText:@"embed"];
     CHECK(waitFor(hasEmbedText, app, 10.0));
@@ -284,8 +320,8 @@ int main(int argc, char **argv)
         CHECK([[main messageString] rangeOfString:marker].location == NSNotFound);
         [app setInlineImages:YES];
         CHECK([app inlineImagesEnabled]);
-        CHECK(waitFor(hasTwoAttachmentChars, app, 20.0));              /* the picture's thumbnail and the embed's */
-        CHECK(countOf([main messageString], marker) == 2);
+        CHECK(waitFor(hasTwoAttachmentChars, app, 20.0));              /* the picture's thumbnail and the embed's ... */
+        CHECK(countOf([main messageString], marker) == 4);             /* ... and the two custom emoji above */
         [app setInlineImages:NO];
         CHECK([[main messageString] rangeOfString:marker].location == NSNotFound);
     }

@@ -25,6 +25,7 @@ SCHEME_HTTP = 'https' if CERT else 'http'
 clients = set()
 JPG = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jpg', 'big_420.jpg'), 'rb').read()
 GIF = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gif', 'anim.gif'), 'rb').read()
+EMOJI = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img', 't6_d8_i0_13x7.png'), 'rb').read()
 PNG = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img', 'big_rgb_interlaced.png'), 'rb').read()
 state = {'seq': 100, 'next_id': 500, 'limited': False, 'missed': False}
 
@@ -116,6 +117,9 @@ async def rest_conn(reader, writer):
                     writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
                     await writer.drain()
                     break
+                elif path.startswith('/img/emoji/'):    # custom emoji pictures
+                    writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(EMOJI)).encode() + EMOJI)
+                    await writer.drain()
                 elif path == '/img/plainfetch':        # an outside site: it must get the address untouched
                     if query != 'token=abc':
                         await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'the address was changed: ' + query})
@@ -191,6 +195,9 @@ async def rest_conn(reader, writer):
                                               'proxy_url': '%s://localhost:%d/img/cat.png?ex=1&hm=abc' % (SCHEME_HTTP, PORT),
                                               'width': 300, 'height': 200, 'content_type': 'image/png'}]
                         await broadcast('MESSAGE_CREATE', pm)
+                    if content == 'emoji':
+                        state['next_id'] += 1
+                        await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'cool <:blob:123> and <a:party:456> yes', author='7', name='someone'))
                     if content == 'embed':
                         state['next_id'] += 1
                         em = msg(state['next_id'], 'a link', author='7', name='someone')

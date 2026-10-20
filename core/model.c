@@ -123,6 +123,9 @@ static void message_clear(Message *m)
     free(m->att);
     free(m->embeds);
     m->embeds = NULL;
+    free(m->emoji);
+    m->emoji = NULL;
+    m->nemoji = 0;
     m->text = NULL;
     m->att = NULL;
     m->natt = 0;
@@ -490,7 +493,8 @@ static int is_image_attachment(const JNode *a)
 }
 
 /* The text to show for a message object, in a malloc'd string (NULL if out of memory). */
-static char *render_text(Model *m, const JNode *msg)
+/* `emo` (room for MODEL_MAX_EMOJI) and *nemo receive where the custom emoji ended up in the text. */
+static char *render_text(Model *m, const JNode *msg, Emoji *emo, int *nemo)
 {
     Str out;
     const char *content = json_get_str(msg, "content", "");
@@ -501,6 +505,7 @@ static char *render_text(Model *m, const JNode *msg)
     size_t n;
 
     memset(&out, 0, sizeof(out));
+    *nemo = 0;
     while (*p != '\0' && !out.failed) {
         if (*p == '<' && (n = parse_tag(p, &kind, id, name)) > 0) {
             if (kind == 'u') {
@@ -523,6 +528,13 @@ static char *render_text(Model *m, const JNode *msg)
                 str_adds(&out, "#");
                 str_adds(&out, c != NULL ? c->name : "channel");
             } else {
+                if (*nemo < MODEL_MAX_EMOJI && strlen(id) < sizeof(emo[0].id)) {
+                    emo[*nemo].off = (int)out.len;
+                    emo[*nemo].len = (int)strlen(name) + 2;
+                    strcpy(emo[*nemo].id, id);
+                    emo[*nemo].animated = p[1] == 'a';
+                    (*nemo)++;
+                }
                 str_adds(&out, ":");
                 str_adds(&out, name);
                 str_adds(&out, ":");
@@ -1042,6 +1054,8 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     Channel *c;
     Message tmp, *ex;
     char *text;
+    Emoji *tmp_emoji = NULL;
+    int tmp_nemoji = 0;
     int at, bt;
 
     if (id == NULL || cid == NULL || author == NULL || author->type != J_OBJ) {
@@ -1054,7 +1068,19 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     if (c == NULL) {
         return;
     }
-    text = render_text(m, msg);
+    {
+        Emoji emo[MODEL_MAX_EMOJI];
+        int nemo = 0;
+
+        text = render_text(m, msg, emo, &nemo);
+        if (text != NULL && nemo > 0) {
+            tmp_emoji = (Emoji *)malloc((size_t)nemo * sizeof(Emoji));
+            if (tmp_emoji != NULL) {
+                memcpy(tmp_emoji, emo, (size_t)nemo * sizeof(Emoji));
+                tmp_nemoji = nemo;
+            }
+        }
+    }
     if (text == NULL) {
         return;
     }
@@ -1078,6 +1104,8 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     tmp.bot = json_bool(json_get(author, "bot"), &bt) ? bt : 0;
     tmp.type = int_of(msg, "type", 0);
     tmp.text = text;
+    tmp.emoji = tmp_emoji;
+    tmp.nemoji = tmp_nemoji;
     parse_attachments(&tmp, msg);
     append_sticker_images(&tmp, msg);
     {
@@ -1177,7 +1205,10 @@ static void message_update(Model *m, const JNode *d)
         }
     }
     if (json_get(d, "content") != NULL) {
-        text = render_text(m, d);
+        Emoji emo[MODEL_MAX_EMOJI];
+        int nemo = 0;
+
+        text = render_text(m, d, emo, &nemo);
         if (text == NULL) {
             return;
         }
@@ -1190,6 +1221,13 @@ static void message_update(Model *m, const JNode *d)
         }
         free(msg->text);
         msg->text = text;
+        free(msg->emoji);
+        msg->emoji = nemo > 0 ? (Emoji *)malloc((size_t)nemo * sizeof(Emoji)) : NULL;
+        msg->nemoji = 0;
+        if (msg->emoji != NULL) {
+            memcpy(msg->emoji, emo, (size_t)nemo * sizeof(Emoji));
+            msg->nemoji = nemo;
+        }
     } else if (edited == msg->edited && !embeds_changed) {
         return;
     }

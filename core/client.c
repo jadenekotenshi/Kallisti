@@ -706,7 +706,7 @@ static void fetch_url(const KClient *kc, char *out, size_t cap, const char *url,
     char extra[96];
     unsigned long nw = w, nh = h;
 
-    if (!takes_resize_params(kc, url)) {
+    if ((flags & KC_FETCH_RAW) || !takes_resize_params(kc, url)) {
         if (strlen(url) >= cap) {
             out[0] = '\0';
         } else {

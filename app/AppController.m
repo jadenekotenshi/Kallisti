@@ -123,7 +123,7 @@ static KMs app_now_ms(void)
     [mainController release];
     [channelWindows release];
     [dmController release];
-    [imageList release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release];
+    [imageList release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release]; [emojiBase release];
     [kallistiDir release]; [prefsPath release]; [rngSeedPath release];
     [entropyPanel release];
     [restHost release]; [gatewayURL release];
@@ -572,6 +572,26 @@ static KMs app_now_ms(void)
 }
 
 - (BOOL)inlineImagesEnabled { return inlineImages; }
+
+- (void)setEmojiBase:(NSString *)base
+{
+    [emojiBase release];
+    emojiBase = [base retain];
+}
+
+/* The picture of a custom emoji if it is on hand; otherwise nil and a download of its 32-pixel PNG (shown at 16) starts. */
+- (NSImage *)inlineEmojiImageForID:(NSString *)emojiId
+{
+    NSString *url = [NSString stringWithFormat:@"%@%@.png?size=32", emojiBase ? emojiBase : @"https://cdn.discordapp.com/emojis/", emojiId];
+    id v = [thumbs objectForKey:url];
+
+    if (v != nil) return [v isKindOfClass:[NSImage class]] ? (NSImage *)v : nil;
+    if (kc && ![thumbsAsked containsObject:url] &&
+        kc_fetch_image_ex(kc, [url cString], 0, 0, 16, 16, 1, KC_FETCH_RAW) == 0) {
+        [thumbsAsked addObject:url];
+    }
+    return nil;
+}
 
 - (void)setInlineImages:(BOOL)on
 {
