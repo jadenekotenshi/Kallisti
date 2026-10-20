@@ -9,9 +9,10 @@
     NSString *name;
     unsigned long width, height;
     BOOL jpeg;                   /* the original is a JPEG */
+    BOOL gif;                    /* ... or a GIF, which may be an animation */
 }
 - (id)initWithLabel:(NSString *)l url:(NSString *)u name:(NSString *)n width:(unsigned long)w height:(unsigned long)h
-               jpeg:(BOOL)isJpeg;
+               jpeg:(BOOL)isJpeg gif:(BOOL)isGif;
 @end
 
 /* "Images in This Channel": a small list of the pictures attached to the messages the channel window shows. A

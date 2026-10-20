@@ -91,6 +91,125 @@ static void test_manifest(void)
     CHECK(n >= 50);
 }
 
+/* every frame of every animation is exactly the screen the generator composited (disposal methods included) */
+static void test_anim(void)
+{
+    FILE *f = fopen("tests/gif/anim_manifest.txt", "r");
+    static char line[16384];
+    int n = 0;
+
+    CHECK(f != NULL);
+    while (f != NULL && fgets(line, sizeof(line), f) != NULL) {
+        char name[64], path[128], *delays, *shas, *tok;
+        unsigned long w, h;
+        int nframes, i;
+        size_t len;
+        unsigned char *data;
+        GifAnim a;
+        const char *err;
+
+        if (sscanf(line, "%63s %lu %lu %d", name, &w, &h, &nframes) != 4) {
+            continue;
+        }
+        /* the line is: name w h n delays shas, the last two comma-separated */
+        delays = strchr(strchr(strchr(strchr(line, ' ') + 1, ' ') + 1, ' ') + 1, ' ') + 1;
+        shas = strchr(delays, ' ') + 1;
+        *(shas - 1) = '\0';
+        sprintf(path, "tests/gif/%s.gif", name);
+        data = slurp(path, &len);
+        CHECK(data != NULL);
+        if (data == NULL) {
+            continue;
+        }
+        if (gif_decode_anim(data, len, 1000, 100000000UL, &a, &err) != 0) {
+            printf("  %s: %s\n", name, err);
+            CHECK(0);
+            free(data);
+            continue;
+        }
+        CHECK(a.width == w && a.height == h && a.nframes == nframes && a.total_frames == nframes);
+        tok = shas;
+        for (i = 0; i < a.nframes; i++) {
+            char want[80], got[80];
+            unsigned char digest[32];
+            size_t k = strcspn(tok, ",\n");
+
+            memcpy(want, tok, k);
+            want[k] = '\0';
+            tok += k + (tok[k] == ',' ? 1 : 0);
+            sha256(a.rgba[i], (size_t)(a.width * a.height * 4UL), digest);
+            hex(digest, 32, got);
+            if (strcmp(got, want) != 0) {
+                printf("  %s: frame %d differs\n", name, i);
+            }
+            CHECK(strcmp(got, want) == 0);
+        }
+        {
+            const char *dp = delays;
+
+            for (i = 0; i < a.nframes; i++) {
+                unsigned cs = (unsigned)strtoul(dp, NULL, 10);
+
+                CHECK(a.delay_ms[i] == (cs <= 1 ? 100U : cs * 10U));       /* browsers' rule for 0 and 1 */
+                dp = strchr(dp, ',') ? strchr(dp, ',') + 1 : dp;
+            }
+        }
+        gif_anim_free(&a);
+        free(data);
+        n++;
+    }
+    if (f != NULL) {
+        fclose(f);
+    }
+    CHECK(n == 9);
+}
+
+/* limits: a frame cap, a pixel budget, and the first frame always comes */
+static void test_anim_limits(void)
+{
+    size_t len;
+    unsigned char *d = slurp("tests/gif/a_many.gif", &len);
+    GifAnim a;
+    const char *err;
+
+    CHECK(d != NULL);
+    if (d == NULL) {
+        return;
+    }
+    CHECK(gif_decode_anim(d, len, 40, 100000000UL, &a, &err) == 0 && a.nframes == 40 && a.total_frames == 130);
+    gif_anim_free(&a);
+    CHECK(gif_decode_anim(d, len, 1000, 16UL * 12 * 25, &a, &err) == 0 && a.nframes == 25 && a.total_frames == 130);   /* budget: 25 screens */
+    gif_anim_free(&a);
+    CHECK(gif_decode_anim(d, len, 1000, 1, &a, &err) == 0 && a.nframes == 1 && a.total_frames == 130);              /* never less than one */
+    gif_anim_free(&a);
+    CHECK(gif_decode_anim(d, len, 0, 100, &a, &err) == 0 && a.nframes == 1);
+    gif_anim_free(&a);
+    CHECK(gif_decode_anim(d, len, 1000, 100000000UL, &a, &err) == 0 && a.nframes == 130);
+    gif_anim_free(&a);
+    /* a damaged later frame ends the animation there; the frames before it still play */
+    {
+        unsigned char *c = (unsigned char *)malloc(len);
+        size_t i;
+        int short_ok = 0;
+
+        for (i = len / 2; i < len; i += 37) {
+            memcpy(c, d, len);
+            c[i] ^= 0xff;
+            if (gif_decode_anim(c, len, 1000, 100000000UL, &a, &err) == 0) {
+                short_ok += a.nframes >= 1;
+                gif_anim_free(&a);
+            }
+        }
+        CHECK(short_ok > 0);
+        /* cut in the middle: whole frames survive */
+        CHECK(gif_decode_anim(d, len / 2, 1000, 100000000UL, &a, &err) == 0 && a.nframes > 10 && a.nframes < 130);
+        gif_anim_free(&a);
+        free(c);
+    }
+    free(d);
+    CHECK(gif_decode_anim((const unsigned char *)"GIF89a", 6, 10, 1000, &a, &err) != 0 && a.nframes == 0 && a.rgba == NULL);
+}
+
 static unsigned long rs = 17;
 static unsigned rnd(void)
 {
@@ -215,11 +334,42 @@ static void test_to_tiff(void)
     }
 }
 
+static void test_img_anim(void)
+{
+    size_t len;
+    unsigned char *d = slurp("tests/gif/a_mixed.gif", &len);
+    ImgAnim a;
+    const char *err;
+    int i;
+
+    CHECK(d != NULL);
+    if (d == NULL) {
+        return;
+    }
+    CHECK(img_gif_to_anim(d, len, 0, 0, 100, 100000000UL, &a, &err) == 0 && a.n == 5 && a.w == 30 && a.h == 20 && a.total_frames == 5);
+    for (i = 0; i < a.n; i++) {
+        CHECK(a.len[i] == 192 + 30UL * 20 * 3 && a.tiff[i][0] == 'M' && a.delay_ms[i] >= 100 && a.delay_ms[i] <= 100);
+    }
+    img_anim_free(&a);
+    CHECK(img_gif_to_anim(d, len, 10, 10, 100, 100000000UL, &a, &err) == 0 && a.n == 5 && a.w == 10 && a.h == 7);        /* 3x smaller */
+    CHECK(a.len[0] == 192 + 10UL * 7 * 3);
+    img_anim_free(&a);
+    CHECK(img_gif_to_anim(d, len, 0, 0, 2, 100000000UL, &a, &err) == 0 && a.n == 2 && a.total_frames == 5);
+    img_anim_free(&a);
+    free(d);
+    d = slurp("tests/img/t2_d8_i0_13x7.png", &len);
+    CHECK(d != NULL && img_gif_to_anim(d, len, 0, 0, 10, 1000, &a, &err) != 0 && a.n == 0 && a.tiff == NULL);
+    free(d);
+}
+
 int main(void)
 {
     test_manifest();
+    test_anim();
+    test_anim_limits();
     test_damage();
     test_refusals();
     test_to_tiff();
+    test_img_anim();
     TEST_DONE("gif");
 }

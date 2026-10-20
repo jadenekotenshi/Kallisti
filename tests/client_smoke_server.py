@@ -24,6 +24,8 @@ SCHEME = 'wss' if CERT else 'ws'
 SCHEME_HTTP = 'https' if CERT else 'http'
 clients = set()
 JPG = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jpg', 'big_420.jpg'), 'rb').read()
+MANY = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gif', 'a_many.gif'), 'rb').read()
+ONE = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gif', 'a_one.gif'), 'rb').read()
 GIF = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gif', 'anim.gif'), 'rb').read()
 EMOJI = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img', 't6_d8_i0_13x7.png'), 'rb').read()
 PNG = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img', 'big_rgb_interlaced.png'), 'rb').read()
@@ -126,6 +128,15 @@ async def rest_conn(reader, writer):
                     else:
                         writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
                         await writer.drain()
+                elif path in ('/img/animsized', '/img/many.gif', '/img/single.gif', '/img/ui.gif'):
+                    if path == '/img/animsized' and query != 'width=400&height=200':
+                        await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'wrong animation parameters: ' + query})
+                    elif 'format' in query:
+                        await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'an animation was asked for in a format: ' + query})
+                    else:
+                        body = {'/img/animsized': GIF, '/img/many.gif': MANY, '/img/single.gif': ONE, '/img/ui.gif': GIF}[path]
+                        writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nContent-Length: %d\r\n\r\n' % len(body)).encode() + body)
+                        await writer.drain()
                 elif path == '/img/animated.gif':      # a proxy that answers with a GIF whatever was asked
                     writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nContent-Length: %d\r\n\r\n' % len(GIF)).encode() + GIF)
                     await writer.drain()
@@ -198,6 +209,13 @@ async def rest_conn(reader, writer):
                     if content == 'emoji':
                         state['next_id'] += 1
                         await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'cool <:blob:123> and <a:party:456> yes', author='7', name='someone'))
+                    if content == 'gifpic':
+                        state['next_id'] += 1
+                        gm = msg(state['next_id'], 'a gif', author='7', name='someone')
+                        gm['attachments'] = [{'id': '2', 'filename': 'dance.gif', 'size': 1, 'url': 'https://cdn.invalid/dance.gif',
+                                              'proxy_url': '%s://localhost:%d/img/ui.gif?ex=1' % (SCHEME_HTTP, PORT),
+                                              'width': 25, 'height': 15, 'content_type': 'image/gif'}]
+                        await broadcast('MESSAGE_CREATE', gm)
                     if content == 'embed':
                         state['next_id'] += 1
                         em = msg(state['next_id'], 'a link', author='7', name='someone')

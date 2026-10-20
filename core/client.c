@@ -150,7 +150,7 @@ void kc_free(KClient *kc)
 
     drop_fetch(kc);
     for (i = 0; i < kc->nimgs; i++) {
-        free(kc->imgs[i].tiff);
+        kc_image_free(&kc->imgs[i]);
     }
     kc->nimgs = 0;
     drop_rest(kc);
@@ -726,7 +726,18 @@ static void fetch_url(const KClient *kc, char *out, size_t cap, const char *url,
         }
         if (nw < 1) nw = 1;
         if (nh < 1) nh = 1;
-        sprintf(extra, "format=%s&width=%lu&height=%lu", (flags & KC_FETCH_JPEG) ? "jpeg" : "png", nw, nh);
+        if (flags & KC_FETCH_ANIM) {
+            sprintf(extra, "width=%lu&height=%lu", nw, nh);              /* no format: it must stay a GIF */
+        } else {
+            sprintf(extra, "format=%s&width=%lu&height=%lu", (flags & KC_FETCH_JPEG) ? "jpeg" : "png", nw, nh);
+        }
+    } else if (flags & KC_FETCH_ANIM) {
+        if (strlen(url) >= cap) {
+            out[0] = '\0';
+        } else {
+            strcpy(out, url);
+        }
+        return;
     } else {
         strcpy(extra, (flags & KC_FETCH_JPEG) ? "format=jpeg" : "format=png");
     }
@@ -787,8 +798,15 @@ int kc_next_image(KClient *kc, KImage *out)
 }
 
 /* Finishes the download in progress with a result. `keep`: the connection may be used again for the next picture. */
+void kc_image_free(KImage *im)
+{
+    free(im->tiff);
+    img_anim_free(&im->anim);
+    memset(im, 0, sizeof(*im));
+}
+
 static void fetch_result(KClient *kc, int ok, const char *error, unsigned char *tiff, size_t tiff_len,
-                         unsigned long w, unsigned long h, int keep)
+                         unsigned long w, unsigned long h, int keep, ImgAnim *anim)
 {
     KImage *r = &kc->imgs[kc->nimgs];
 
@@ -803,6 +821,10 @@ static void fetch_result(KClient *kc, int ok, const char *error, unsigned char *
     copy_str(r->error, sizeof(r->error), error);
     r->tiff = tiff;
     r->tiff_len = tiff_len;
+    if (anim != NULL) {
+        r->anim = *anim;                                  /* ownership moves to the result */
+        memset(anim, 0, sizeof(*anim));
+    }
     r->width = w;
     r->height = h;
     kc->nimgs++;
@@ -824,7 +846,7 @@ static void fetch_failed_keep(KClient *kc, const char *why, int keep)
     char msg[200];
 
     sprintf(msg, "Could not load the picture: %.150s", why);
-    fetch_result(kc, 0, msg, NULL, 0, 0, 0, keep);
+    fetch_result(kc, 0, msg, NULL, 0, 0, 0, keep, NULL);
 }
 
 static void fetch_failed(KClient *kc, const char *why)
@@ -1040,6 +1062,32 @@ static void fetch_pump(KClient *kc, KMs now)
             kc->fwall_done = wall_ms();
             kc->fbytes = (unsigned long)kc->fresp.body_len;
             t0 = wall_ms();
+            if ((kc->fflags & KC_FETCH_ANIM) && kc->fresp.body_len >= 6 &&
+                (memcmp(kc->fresp.body, "GIF87a", 6) == 0 || memcmp(kc->fresp.body, "GIF89a", 6) == 0)) {
+                ImgAnim an;
+
+                if (img_gif_to_anim(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, KC_ANIM_MAX_FRAMES,
+                                    KC_ANIM_MAX_PIXELS, &an, &err) == 0) {
+                    kc->fms_decode = wall_ms() - t0;
+                    if (an.n > 1) {
+                        unsigned long aw = an.w, ah = an.h;
+
+                        fetch_result(kc, 1, "", NULL, 0, aw, ah, keep, &an);
+                        return;
+                    }
+                    tiff = an.tiff[0];                   /* a single frame: an ordinary picture after all */
+                    tl = an.len[0];
+                    w = an.w;
+                    h = an.h;
+                    an.tiff[0] = NULL;
+                    img_anim_free(&an);
+                    fetch_result(kc, 1, "", tiff, tl, w, h, keep, NULL);
+                    return;
+                }
+                kc->fms_decode = wall_ms() - t0;
+                fetch_failed_keep(kc, err, keep);
+                return;
+            }
             dec = img_to_tiff(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, &tiff, &tl, &w, &h, &err);
             kc->fms_decode = wall_ms() - t0;
             if (dec != 0 && (kc->fflags & KC_FETCH_JPEG) && !kc->fretried && strstr(err, "PNG, JPEG or GIF") != NULL) {
@@ -1056,7 +1104,7 @@ static void fetch_pump(KClient *kc, KMs now)
                 return;
             }
             if (dec == 0) {
-                fetch_result(kc, 1, "", tiff, tl, w, h, keep);
+                fetch_result(kc, 1, "", tiff, tl, w, h, keep, NULL);
             } else {
                 fetch_failed_keep(kc, err, keep);
             }

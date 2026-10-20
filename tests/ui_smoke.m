@@ -64,6 +64,16 @@ static BOOL hasPicMessage(AppController *app)
     return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
 }
 
+static BOOL hasGifMessage(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"[image: dance.gif 25x15]"].location != NSNotFound;
+}
+
+static BOOL gifMoved(AppController *app)
+{
+    return [[app imageWindows] count] == 1 && [[[app imageWindows] objectAtIndex:0] currentFrame] != 0;
+}
+
 static BOOL hasEmojiText(AppController *app)
 {
     return [[[app mainController] messageString] rangeOfString:@"cool :blob: and :party: yes"].location != NSNotFound;
@@ -275,6 +285,36 @@ int main(int argc, char **argv)
                 [[[app imageWindows] objectAtIndex:0] closeWindow];
                 [app imageWindowClosed:[[app imageWindows] objectAtIndex:0]];
                 CHECK([[app imageWindows] count] == 0);
+            }
+        }
+    }
+
+    /* an animated GIF opens in a window that plays it: frames in order, wrapping round, on a timer */
+    [main typeText:@"gifpic"];
+    CHECK(waitFor(hasGifMessage, app, 10.0));
+    {
+        NSArray *items = [app imageItemsForCurrentChannel];
+        ImageItem *gif = nil;
+        unsigned i;
+
+        for (i = 0; i < [items count]; i++) {
+            if ([((ImageItem *)[items objectAtIndex:i])->name isEqualToString:@"dance.gif"]) gif = [items objectAtIndex:i];
+        }
+        CHECK(gif != nil && gif->gif && !gif->jpeg);
+        if (gif != nil) {
+            [app openImageItem:gif];
+            CHECK(waitFor(hasImageWindow, app, 20.0));
+            if ([[app imageWindows] count] == 1) {
+                ImageWindow *w = [[app imageWindows] objectAtIndex:0];
+
+                CHECK([w isAnimated] && (int)[w imageSize].width == 25 && (int)[w imageSize].height == 15);
+                CHECK(waitFor(gifMoved, app, 5.0));                 /* the timer moved it on by itself (100 ms a frame) */
+                [w advance];
+                [w advance];
+                [w advance];                                         /* 3 frames: wraps round */
+                CHECK([w currentFrame] >= 0 && [w currentFrame] < 3);
+                [w closeWindow];
+                [app imageWindowClosed:w];
             }
         }
     }

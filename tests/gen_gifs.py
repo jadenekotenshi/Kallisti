@@ -177,3 +177,84 @@ make('big_interlaced', 200, 150, [frame(200, 150, 64, interlace=True, smooth=Tru
 make('noise', 100, 100, [frame(100, 100, 256)], gct=rand_pal(256))
 open(os.path.join(OUT, 'manifest.txt'), 'w').write('\n'.join(manifest) + '\n')
 print(len(manifest), 'pictures')
+
+
+# ---- animations: every frame composited on the screen, with the three disposal methods and per-frame transparency ----
+anim_manifest = []
+
+
+def make_anim(name, sw, sh, frames, gct):
+    """frames: dicts as for frame() plus delay (1/100 s), disposal (0..3) and trans (index or None)."""
+    data = bytearray(b'GIF89a')
+    bits = max(1, (len(gct) - 1).bit_length())
+    size = 1 << bits
+    data += struct.pack('<HHBBB', sw, sh, 0x80 | ((bits - 1) << 4) | (bits - 1), 0, 0)
+    data += b''.join(bytes(c) for c in gct + [(0, 0, 0)] * (size - len(gct)))
+    data += b'\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00'
+    canvas = [[(0, 0, 0, 0)] * sw for _ in range(sh)]
+    shas, delays = [], []
+    prev_disposal, prev_rect, saved = 0, None, None
+    for fr in frames:
+        # the previous frame's disposal happens before this one is drawn
+        if prev_disposal == 2 and prev_rect:
+            x0, y0, w, h = prev_rect
+            for y in range(y0, min(sh, y0 + h)):
+                for x in range(x0, min(sw, x0 + w)):
+                    canvas[y][x] = (0, 0, 0, 0)
+        elif prev_disposal == 3 and saved is not None:
+            canvas = [row[:] for row in saved]
+        if fr['disposal'] == 3:
+            saved = [row[:] for row in canvas]
+        trans = fr.get('trans')
+        data += b'\x21\xf9\x04' + bytes([(fr['disposal'] << 2) | (1 if trans is not None else 0)]) + struct.pack('<H', fr['delay']) + \
+            bytes([trans if trans is not None else 0]) + b'\x00'
+        pal = fr.get('pal')
+        palette = pal or gct
+        lflag, local = 0, b''
+        if pal:
+            b2 = max(1, (len(pal) - 1).bit_length())
+            lflag = 0x80 | (b2 - 1)
+            local = b''.join(bytes(c) for c in pal + [(0, 0, 0)] * ((1 << b2) - len(pal)))
+        if fr.get('interlace'):
+            lflag |= 0x40
+        data += b'\x2c' + struct.pack('<HHHHB', fr['x'], fr['y'], fr['w'], fr['h'], lflag) + local
+        order = interlaced_rows(fr['h']) if fr.get('interlace') else list(range(fr['h']))
+        flat = [v for r in order for v in fr['rows'][r]]
+        min_code = max(2, (len(palette) - 1).bit_length())
+        data += bytes([min_code]) + blocks(lzw_encode(flat, min_code))
+        for y in range(fr['h']):
+            for x in range(fr['w']):
+                ox, oy = fr['x'] + x, fr['y'] + y
+                v = fr['rows'][y][x]
+                if ox >= sw or oy >= sh or (trans is not None and v == trans):
+                    continue
+                r, g, b = palette[v] if v < len(palette) else (0, 0, 0)
+                canvas[oy][ox] = (r, g, b, 255)
+        flat_rgba = bytes(c for row in canvas for px in row for c in px)
+        shas.append(hashlib.sha256(flat_rgba).hexdigest())
+        delays.append(fr['delay'])
+        prev_disposal, prev_rect = fr['disposal'], (fr['x'], fr['y'], fr['w'], fr['h'])
+    data += b'\x3b'
+    open(os.path.join(OUT, name + '.gif'), 'wb').write(bytes(data))
+    anim_manifest.append('%s %d %d %d %s %s' % (name, sw, sh, len(frames), ','.join(map(str, delays)), ','.join(shas)))
+
+
+def af(w, h, n, x=0, y=0, delay=10, disposal=0, trans=None, pal=None, interlace=False):
+    d = frame(w, h, n, x=x, y=y, pal=pal, interlace=interlace)
+    d.update(delay=delay, disposal=disposal, trans=trans)
+    return d
+
+
+g16 = rand_pal(16)
+make_anim('a_full', 20, 12, [af(20, 12, 16, delay=5), af(20, 12, 16, delay=7), af(20, 12, 16, delay=20), af(20, 12, 16, delay=0)], g16)
+make_anim('a_dispose0', 24, 16, [af(24, 16, 16), af(8, 6, 16, x=3, y=2, trans=0), af(10, 5, 16, x=12, y=9, trans=0)], g16)
+make_anim('a_dispose1', 24, 16, [af(24, 16, 16, disposal=1), af(8, 6, 16, x=3, y=2, disposal=1), af(6, 6, 16, x=10, y=4, disposal=1, trans=2)], g16)
+make_anim('a_dispose2', 24, 16, [af(24, 16, 16, disposal=2), af(8, 6, 16, x=3, y=2, disposal=2, trans=0), af(6, 6, 16, x=10, y=4, disposal=2, trans=0), af(24, 16, 16, trans=1)], g16)
+make_anim('a_dispose3', 24, 16, [af(24, 16, 16), af(8, 6, 16, x=3, y=2, disposal=3), af(6, 6, 16, x=10, y=4, disposal=3, trans=0), af(5, 5, 16, x=0, y=0, trans=0)], g16)
+make_anim('a_mixed', 30, 20, [af(30, 20, 16, disposal=1), af(12, 9, 16, x=5, y=4, disposal=3, trans=3), af(9, 9, 16, x=14, y=8, disposal=2, trans=3), af(30, 20, 16, trans=5, disposal=0),
+                              af(7, 7, 16, x=1, y=1, pal=rand_pal(16), interlace=True, trans=2)], g16)
+make_anim('a_one', 9, 9, [af(9, 9, 16, delay=33)], g16)
+make_anim('a_clipped', 12, 10, [af(12, 10, 16), af(20, 14, 16, x=5, y=3, disposal=2)], g16)
+make_anim('a_many', 16, 12, [af(16, 12, 16, delay=i % 7) for i in range(130)], g16)
+open(os.path.join(OUT, 'anim_manifest.txt'), 'w').write('\n'.join(anim_manifest) + '\n')
+print(len(anim_manifest), 'animations')

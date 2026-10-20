@@ -44,8 +44,11 @@ typedef struct {
 #define KC_IMAGE_MAX_H 600UL
 #define KC_IMAGE_QUEUE 4
 #define KC_FETCH_JPEG 1             /* ask the media proxy for a JPEG instead of a PNG (for photographs) */
+#define KC_FETCH_ANIM 4             /* an animated GIF: ask for the GIF itself (resized), and decode its frames */
 #define KC_FETCH_RAW 2              /* fetch the address exactly as given (an emoji's own, which carries its size) */
 #define KC_IMAGE_BODY_MAX (12L * 1024L * 1024L)
+#define KC_ANIM_MAX_FRAMES 100
+#define KC_ANIM_MAX_PIXELS 3000000UL   /* frames x screen size, before shrinking: bounds the memory a GIF can take */
 
 /* A fetched picture, ready for AppKit: an uncompressed TIFF. */
 typedef struct {
@@ -56,6 +59,7 @@ typedef struct {
     unsigned char *tiff;         /* malloc'd; the receiver frees it */
     size_t tiff_len;
     unsigned long width, height;
+    ImgAnim anim;                /* an animation's frames (anim.n > 1; then tiff is NULL), else anim.n is 0 */
     unsigned long ms_connect, ms_download, ms_decode;   /* where the time went: TLS setup, transfer, PNG -> TIFF */
     unsigned long bytes;         /* size of the PNG that was downloaded */
 } KImage;
@@ -154,8 +158,9 @@ int kc_fetch_image_boxed(KClient *kc, const char *url, unsigned long w, unsigned
 /* ... and KC_FETCH_* flags. Whichever format arrives (PNG or JPEG) is decoded. */
 int kc_fetch_image_ex(KClient *kc, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
                       unsigned long max_h, unsigned long tag, int flags);
-/* One finished download (success or failure). The caller owns out->tiff. */
+/* One finished download (success or failure). The caller owns what is in it and releases it with kc_image_free(). */
 int kc_next_image(KClient *kc, KImage *out);
+void kc_image_free(KImage *im);
 
 /* Opens a direct message with a user (by id). Returns 0 or a REST_E_* code; the answer is a KE_CHANNEL event,
  * or a KE_ERROR (for a bot: the user must share a server with it). */

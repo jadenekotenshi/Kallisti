@@ -408,14 +408,25 @@ static KMs app_now_ms(void)
             if (img.ok) thumb = [[[NSImage alloc] initWithData:[NSData dataWithBytes:img.tiff length:img.tiff_len]] autorelease];
             [thumbs setObject:(thumb ? (id)thumb : (id)@"") forKey:url];                /* @"": it failed, do not ask again */
             [thumbsAsked removeObject:url];
-            free(img.tiff);
+            kc_image_free(&img);
             thumbsArrived = YES;
             continue;
         }
         if (img.ok) {
-            NSData *data = [NSData dataWithBytes:img.tiff length:img.tiff_len];
+            if (img.anim.n > 1) {                                   /* an animation: every frame, and how long each is shown */
+                NSMutableArray *tiffs = [NSMutableArray array], *delays = [NSMutableArray array];
+                int fi;
 
-            w = [[[ImageWindow alloc] initWithOwner:self title:(name ? name : @"Picture") tiffData:data] autorelease];
+                for (fi = 0; fi < img.anim.n; fi++) {
+                    [tiffs addObject:[NSData dataWithBytes:img.anim.tiff[fi] length:img.anim.len[fi]]];
+                    [delays addObject:[NSNumber numberWithUnsignedInt:img.anim.delay_ms[fi]]];
+                }
+                w = [[[ImageWindow alloc] initWithOwner:self title:(name ? name : @"Picture") frames:tiffs delays:delays] autorelease];
+            } else {
+                NSData *data = [NSData dataWithBytes:img.tiff length:img.tiff_len];
+
+                w = [[[ImageWindow alloc] initWithOwner:self title:(name ? name : @"Picture") tiffData:data] autorelease];
+            }
             if (w) {
                 [imageWindows addObject:w];
                 [w show];
@@ -431,7 +442,7 @@ static KMs app_now_ms(void)
             [mainController setStatus:S(img.error)];
             [mainController appendNotice:S(img.error)];
         }
-        free(img.tiff);
+        kc_image_free(&img);
         [imageNames removeObjectForKey:url];
     }
     if (thumbsArrived) [self reloadAllMessages];
@@ -652,7 +663,7 @@ static KMs app_now_ms(void)
                      (a->width > 0 && a->height > 0) ? [NSString stringWithFormat:@"  (%dx%d)", a->width, a->height] : @""];
             [list addObject:[[[ImageItem alloc] initWithLabel:label url:S(a->url) name:S(a->name)
                                                         width:(unsigned long)a->width height:(unsigned long)a->height
-                                                         jpeg:(a->is_jpeg ? YES : NO)] autorelease]];
+                                                         jpeg:(a->is_jpeg ? YES : NO) gif:(a->is_gif ? YES : NO)] autorelease]];
         }
     }
     return list;
@@ -676,8 +687,10 @@ static KMs app_now_ms(void)
 
 - (void)openImageItem:(ImageItem *)item
 {
-    if (!kc || kc_fetch_image_ex(kc, [item->url cString], item->width, item->height, KC_IMAGE_MAX_W, KC_IMAGE_MAX_H, 0,
-                                 item->jpeg ? KC_FETCH_JPEG : 0) != 0) {
+    /* a GIF is fetched as the GIF (smaller box: every frame is kept in memory) so an animation can play */
+    if (!kc || kc_fetch_image_ex(kc, [item->url cString], item->width, item->height,
+                                 item->gif ? 400UL : KC_IMAGE_MAX_W, item->gif ? 300UL : KC_IMAGE_MAX_H, 0,
+                                 item->gif ? KC_FETCH_ANIM : (item->jpeg ? KC_FETCH_JPEG : 0)) != 0) {
         [mainController appendNotice:@"Too many pictures are loading; try again in a moment."];
         return;
     }

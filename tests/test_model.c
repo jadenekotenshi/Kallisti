@@ -437,6 +437,7 @@ static void test_attachments(void)
           msg->att[0].width == 800 && msg->att[0].height == 600 && strcmp(msg->att[0].name, "cat.png") == 0);
     CHECK(strcmp(msg->att[1].url, "https://cdn.example/a/notes.txt") == 0 && !msg->att[1].is_image);
     CHECK(msg->att[2].is_image && msg->att[2].width == 10);
+    CHECK(!msg->att[0].is_gif && !msg->att[2].is_gif);
     CHECK(!msg->att[0].is_jpeg && !msg->att[1].is_jpeg && msg->att[2].is_jpeg);          /* pic.jpg: by its extension */
     /* a message without attachments has none, and an over-long address is dropped rather than cut */
     dispatch(m, "MESSAGE_CREATE", "{\"id\":\"11\",\"channel_id\":\"201\",\"content\":\"plain\",\"author\":{\"id\":\"1\",\"username\":\"a\"}}");
@@ -576,7 +577,7 @@ static void test_stickers(void)
     CHECK(strcmp(msg->text, "hi\n[sticker: Wave]\n[sticker: Dance]\n[sticker: Lottie]") == 0);      /* the first three */
     CHECK(msg->natt == 2 && strcmp(msg->att[0].url, "https://media.discordapp.net/stickers/555.png") == 0 && msg->att[0].is_image &&
           strcmp(msg->att[0].name, "Wave") == 0 && strcmp(msg->att[1].url, "https://media.discordapp.net/stickers/556.gif") == 0 &&
-          !msg->att[0].from_embed);
+          !msg->att[0].from_embed && !msg->att[0].is_gif && msg->att[1].is_gif);
     model_free(m);
 }
 

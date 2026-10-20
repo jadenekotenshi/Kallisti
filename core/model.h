@@ -37,6 +37,7 @@ typedef struct {
     char name[100];
     int width, height;           /* 0 if unknown */
     int is_image;                /* an image content type (or one with a size) */
+    int is_gif;                  /* a GIF original: may be an animation (the viewer asks for the frames) */
     int is_jpeg;                 /* a JPEG original: ask the media proxy for a JPEG (a tenth the bytes of a PNG) */
     int from_embed;              /* the picture of an embed (a link preview, an image link), not a file attached */
 } Attachment;

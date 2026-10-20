@@ -850,6 +850,7 @@ static int embed_picture(const JNode *e, Attachment *a)
     a->height = int_of(pic, "height", 0);
     a->is_image = 1;
     a->is_jpeg = ends_with_ci(a->name, ".jpg") || ends_with_ci(a->name, ".jpeg");
+    a->is_gif = ends_with_ci(a->name, ".gif");
     a->from_embed = 1;
     return 1;
 }
@@ -976,6 +977,7 @@ static void append_sticker_images(Message *msg, const JNode *json)
         sprintf(a->url, "https://media.discordapp.net/stickers/%s.%s", id, fmt == 4 ? "gif" : "png");
         copy_utf8(a->name, sizeof(a->name), json_get_str(st, "name", "sticker"));
         a->is_image = 1;
+        a->is_gif = fmt == 4;
     }
 }
 
@@ -1037,6 +1039,7 @@ static void parse_attachments(Message *msg, const JNode *json)
             const char *ct = json_get_str(a, "content_type", "");
 
             t->is_jpeg = strncmp(ct, "image/jpeg", 10) == 0 || ends_with_ci(t->name, ".jpg") || ends_with_ci(t->name, ".jpeg");
+            t->is_gif = strncmp(ct, "image/gif", 9) == 0 || ends_with_ci(t->name, ".gif");
         }
         n++;
     }

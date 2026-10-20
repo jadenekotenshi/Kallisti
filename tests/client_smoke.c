@@ -37,7 +37,8 @@ typedef struct {
     int nerrors;
     char channels[4][24];
     int nchannels;
-    int nimages, image_ok[8];
+    int nimages, image_ok[8], image_frames[8];
+    unsigned image_delay0[8];
     unsigned long image_tag[8];
     char image_err[8][160];
     unsigned long image_w[8], image_h[8];
@@ -63,6 +64,8 @@ static void drain_events(KClient *kc, Seen *s)
     while (kc_next_image(kc, &im)) {
         if (s->nimages < 8) {
             s->image_ok[s->nimages] = im.ok;
+            s->image_frames[s->nimages] = im.anim.n;
+            s->image_delay0[s->nimages] = im.anim.n > 0 ? im.anim.delay_ms[0] : 0;
             s->image_tag[s->nimages] = im.tag;
             strcpy(s->image_err[s->nimages], im.error);
             s->image_w[s->nimages] = im.width;
@@ -70,7 +73,7 @@ static void drain_events(KClient *kc, Seen *s)
             strcpy(s->image_url[s->nimages], im.url);
             s->nimages++;
         }
-        free(im.tiff);
+        kc_image_free(&im);
     }
 }
 
@@ -346,6 +349,28 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(kc_fetch_image(&kc, u, 25, 15) == 0);
         CHECK(run_until(&kc, &seen, c_images1, 15000));
         CHECK(seen.image_ok[0] && seen.image_w[0] == 25 && seen.image_h[0] == 15);
+
+        /* an animation: the GIF itself is asked for (resized, no format), and its frames come back with their delays */
+        seen.nimages = 0;
+        sprintf(u, "%s/animsized", base);
+        CHECK(kc_fetch_image_ex(&kc, u, 1200, 600, 400, 300, 5, KC_FETCH_ANIM) == 0);      /* the server insists on width=400&height=200 */
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_frames[0] == 3 && seen.image_w[0] == 25 && seen.image_h[0] == 15 && seen.image_tag[0] == 5);
+        seen.nimages = 0;
+        sprintf(u, "%s/many.gif", base);
+        CHECK(kc_fetch_image_ex(&kc, u, 16, 12, 400, 300, 6, KC_FETCH_ANIM) == 0);          /* 130 frames: cut at KC_ANIM_MAX_FRAMES */
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_frames[0] == KC_ANIM_MAX_FRAMES && seen.image_delay0[0] == 100);   /* delay 0 -> 100 ms */
+        seen.nimages = 0;
+        sprintf(u, "%s/plainfetch?token=abc", base);
+        CHECK(kc_fetch_image_ex(&kc, u, 0, 0, 400, 300, 7, KC_FETCH_ANIM) == 0);            /* not a GIF: an ordinary picture */
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_frames[0] == 0 && seen.image_w[0] == 300);
+        seen.nimages = 0;
+        sprintf(u, "%s/single.gif", base);
+        CHECK(kc_fetch_image_ex(&kc, u, 9, 9, 400, 300, 8, KC_FETCH_ANIM) == 0);            /* a one-frame GIF: ordinary too */
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_frames[0] == 0 && seen.image_w[0] == 9);
 
         /* a JPEG original: asked for as a JPEG, decoded as one; a PNG request may also come back as a JPEG */
         seen.nimages = 0;

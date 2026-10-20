@@ -85,7 +85,14 @@ before any OPENSTEP code:
      Tenor shows just its picture or poster frame. The preview's picture is in *Images in This Channel* and, with the
      experimental switch, inline. Previews that Discord adds a moment after the message (MESSAGE_UPDATE) appear when
      they arrive. Stickers show as `[sticker: Wave]` and their PNG/GIF is in the picture list (Lottie stickers
-     cannot be shown). Custom emoji are still just `:name:`. *Show Images Inline (Experimental)* draws thumbnails inside the log
+     cannot be shown).
+   - Custom emoji: `<:blob:123>` shows as `:blob:`; with *Show Images Inline* the emoji's own picture (Discord's 32-pixel
+     PNG, shown at 16) takes its place in the line, each fetched once. Animated emoji show their first frame.
+   - Animated GIFs: opening a GIF from the picture list fetches the GIF itself (resized to fit 400x300 -- no `format`
+     parameter, so it stays a GIF), decodes every frame composited onto the screen with all three disposal methods, and
+     plays it in the viewer window on a timer (delays as browsers read them: 0 or 10 ms means 100 ms). At most 100 frames
+     and 3 million pixels in all are kept, so the memory a GIF can take is bounded; an animation cut short in the file
+     plays what is there. Inline thumbnails stay still pictures. *Show Images Inline (Experimental)* draws thumbnails inside the log
      with `NSTextAttachment`, which is untested on OPENSTEP; leave it off if the log misbehaves.
 
 **v0.1 scope:** connect, list servers and their text channels, read live messages, send messages -- plus the

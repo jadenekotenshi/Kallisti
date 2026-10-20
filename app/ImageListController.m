@@ -3,7 +3,7 @@
 
 @implementation ImageItem
 - (id)initWithLabel:(NSString *)l url:(NSString *)u name:(NSString *)n width:(unsigned long)w height:(unsigned long)h
-               jpeg:(BOOL)isJpeg
+               jpeg:(BOOL)isJpeg gif:(BOOL)isGif
 {
     self = [super init];
     if (!self) return nil;
@@ -13,6 +13,7 @@
     width = w;
     height = h;
     jpeg = isJpeg;
+    gif = isGif;
     return self;
 }
 - (void)dealloc
