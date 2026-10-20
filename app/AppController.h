@@ -30,7 +30,7 @@
     ImageListController *imageList;
     NSMutableArray    *imageWindows;       /* every open ImageWindow */
     NSMutableDictionary *imageNames;       /* url -> file name, for the pictures being fetched */
-    NSMutableDictionary *thumbs;           /* url -> NSImage (or NSNull if it failed): inline pictures */
+    NSMutableDictionary *thumbs;           /* url -> NSImage (or an empty string if it failed): inline pictures */
     NSMutableSet        *thumbsAsked;
     BOOL                inlineImages;      /* the experimental inline-pictures switch */
     NSMenuItem          *inlineItem;

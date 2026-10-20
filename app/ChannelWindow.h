@@ -18,7 +18,7 @@
 - (void)closeWindow;
 - (void)modelChanged:(const ModelChange *)change;
 - (void)appendNotice:(NSString *)text;
-- (void)setImageSource:(id)source inline:(BOOL)showInline;
+- (void)setImageSource:(id)source showInline:(BOOL)showInline;
 - (void)reloadMessages;
 - (NSString *)messageString;
 - (void)typeText:(NSString *)text;

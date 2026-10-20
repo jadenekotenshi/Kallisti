@@ -22,6 +22,9 @@ check "stdint / stdbool / inline / restrict"                '#include[[:space:]]
 check "declaration in for-init (C99)"                       'for[[:space:]]*\((int|unsigned|size_t|u8|u32)[[:space:]]+[a-z_]+[[:space:]]*=' core/*.c
 check "snprintf/vsnprintf (not guaranteed on 4.2)"          '\bv?snprintf\b'                      core/*.c app/*.m
 
+check "C keywords used as Objective-C selector parts or names (gcc 2.7.2 reads 'inline:' as the keyword)" '\binline[:,)]|\brestrict[:,)]' $OBJC
+check "NSNull (not in OpenStep)"                            '\bNSNull\b'                         $OBJC
+
 # --- APIs added after OpenStep 4.2 ---
 check "NSString drawing (drawAtPoint:withAttributes:) -- use PSshow"   'drawAtPoint|drawInRect:.*withAttributes|sizeWithAttributes' $OBJC
 check "NSString UTF8String (use dataUsingEncoding:)"         '\bUTF8String\b|stringWithUTF8String'  $OBJC

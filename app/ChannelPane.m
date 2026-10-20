@@ -83,7 +83,7 @@ static NSColor *author_color(const char *name)
 - (NSString *)messageString { return [messageText string]; }
 - (void)focusInput { [[view window] makeFirstResponder:inputField]; }
 
-- (void)setImageSource:(id)source inline:(BOOL)showInline
+- (void)setImageSource:(id)source showInline:(BOOL)showInline
 {
     imageSource = source;
     inlineImages = showInline;

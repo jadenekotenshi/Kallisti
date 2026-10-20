@@ -344,7 +344,7 @@ static KMs app_now_ms(void)
     }
     [mainController release];                           /* a new session has a new model */
     mainController = [[MainController alloc] initWithOwner:self model:kc_model(kc)];
-    [mainController setImageSource:self inline:inlineImages];
+    [mainController setImageSource:self showInline:inlineImages];
     [mainController show];
     [mainController setStatus:@"Starting..."];
     kc_start(kc, app_now_ms());
@@ -389,7 +389,7 @@ static KMs app_now_ms(void)
             NSImage *thumb = nil;
 
             if (img.ok) thumb = [[[NSImage alloc] initWithData:[NSData dataWithBytes:img.tiff length:img.tiff_len]] autorelease];
-            [thumbs setObject:(thumb ? (id)thumb : (id)[NSNull null]) forKey:url];
+            [thumbs setObject:(thumb ? (id)thumb : (id)@"") forKey:url];                /* @"": it failed, do not ask again */
             [thumbsAsked removeObject:url];
             free(img.tiff);
             thumbsArrived = YES;
@@ -511,7 +511,7 @@ static KMs app_now_ms(void)
     if (w == nil) {
         w = [[[ChannelWindow alloc] initWithOwner:self model:kc_model(kc) channel:channelId] autorelease];
         [channelWindows addObject:w];
-        [w setImageSource:self inline:inlineImages];
+        [w setImageSource:self showInline:inlineImages];
         [w reloadMessages];
         kc_open_channel(kc, [channelId cString]);
     }
@@ -545,8 +545,8 @@ static KMs app_now_ms(void)
 {
     int i;
 
-    [mainController setImageSource:self inline:inlineImages];
-    for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] setImageSource:self inline:inlineImages];
+    [mainController setImageSource:self showInline:inlineImages];
+    for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] setImageSource:self showInline:inlineImages];
     [self reloadAllMessages];
 }
 

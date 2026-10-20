@@ -148,13 +148,13 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 
 - (NSString *)currentChannel { return [pane channel]; }
 
-- (void)setImageSource:(id)source inline:(BOOL)showInline
+- (void)setImageSource:(id)source showInline:(BOOL)showInline
 {
     if (!window) {
         [self buildWindow];
         [self reloadList];
     }
-    [pane setImageSource:source inline:showInline];
+    [pane setImageSource:source showInline:showInline];
 }
 
 - (void)reloadMessages { [pane reload]; }

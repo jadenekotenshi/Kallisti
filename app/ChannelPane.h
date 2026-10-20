@@ -27,7 +27,7 @@
 - (void)appendNotice:(NSString *)text;        /* a grey line at the end of the log */
 - (void)focusInput;
 /* Pictures drawn inside the log (experimental): `source` answers -inlineImageForURL:width:height:. */
-- (void)setImageSource:(id)source inline:(BOOL)showInline;
+- (void)setImageSource:(id)source showInline:(BOOL)showInline;
 - (NSString *)messageString;                  /* the log's text, for the tests */
 - (void)typeText:(NSString *)text;            /* as if typed and Return pressed, for the tests */
 @end
