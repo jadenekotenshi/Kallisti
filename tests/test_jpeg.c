@@ -200,7 +200,7 @@ static void test_to_tiff(void)
     free(tiff);
     free(p);
     CHECK(img_to_tiff((const unsigned char *)"RIFF....WEBPVP8 ", 16, 0, 0, &tiff, &tl, &w, &h, &err) != 0 &&
-          strstr(err, "PNG or JPEG") != NULL);
+          strstr(err, "PNG, JPEG or GIF") != NULL);
 }
 
 int main(void)

@@ -323,6 +323,13 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(kc_fetch_image_boxed(&kc, u, 300, 200, 150, 100, 8) == 0);
         CHECK(run_until(&kc, &seen, c_images1, 15000));
         CHECK(seen.image_ok[0] && seen.image_tag[0] == 8 && seen.image_w[0] == 150 && seen.image_h[0] == 100);   /* shrunk here */
+        /* a GIF (the first frame of an animation) comes back like any other picture */
+        seen.nimages = 0;
+        sprintf(u, "%s/animated.gif", base);
+        CHECK(kc_fetch_image(&kc, u, 25, 15) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_w[0] == 25 && seen.image_h[0] == 15);
+
         /* a JPEG original: asked for as a JPEG, decoded as one; a PNG request may also come back as a JPEG */
         seen.nimages = 0;
         sprintf(u, "%s/photo.jpg", base);

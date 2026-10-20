@@ -840,7 +840,7 @@ static int fetch_send(KClient *kc)
     http_req_init(&kc->freq);
     if (http_req_begin(&kc->freq, "GET", u.path, u.host, u.port, u.tls) != 0 ||
         http_req_header(&kc->freq, "User-Agent", kc->rest.user_agent) != 0 ||
-        http_req_header(&kc->freq, "Accept", "image/png, image/jpeg") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
+        http_req_header(&kc->freq, "Accept", "image/png, image/jpeg, image/gif") != 0 || http_req_end(&kc->freq, NULL, 0) != 0 ||
         net_write(&kc->fconn, kc->freq.buf, kc->freq.len) != 0) {
         fetch_failed(kc, "could not send the request");
         return -1;
@@ -1010,7 +1010,7 @@ static void fetch_pump(KClient *kc, KMs now)
             t0 = wall_ms();
             dec = img_to_tiff(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, &tiff, &tl, &w, &h, &err);
             kc->fms_decode = wall_ms() - t0;
-            if (dec != 0 && (kc->fflags & KC_FETCH_JPEG) && !kc->fretried && strstr(err, "PNG or JPEG") != NULL) {
+            if (dec != 0 && (kc->fflags & KC_FETCH_JPEG) && !kc->fretried && strstr(err, "PNG, JPEG or GIF") != NULL) {
                 /* the proxy would not make a JPEG (it sent something else): ask for a PNG instead */
                 kc->fretried = 1;
                 kc->fflags = 0;

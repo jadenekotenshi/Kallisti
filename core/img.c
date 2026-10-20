@@ -4,6 +4,7 @@
 #include "img.h"
 #include "png.h"
 #include "jpeg.h"
+#include "gif.h"
 
 static void put16(unsigned char *p, unsigned v) { p[0] = (unsigned char)(v >> 8); p[1] = (unsigned char)v; }
 static void put32(unsigned char *p, unsigned long v)
@@ -92,8 +93,12 @@ int img_to_tiff(const unsigned char *data, size_t n, unsigned long max_w, unsign
         if (jpeg_decode(data, n, &im, err) != 0) {
             return -1;
         }
+    } else if (n >= 6 && (memcmp(data, "GIF87a", 6) == 0 || memcmp(data, "GIF89a", 6) == 0)) {
+        if (gif_decode(data, n, &im, NULL, err) != 0) {
+            return -1;
+        }
     } else {
-        *err = "the server did not send a PNG or JPEG picture";
+        *err = "the server did not send a PNG, JPEG or GIF picture";
         return -1;
     }
     if (max_w > 0 && im.width > max_w) {

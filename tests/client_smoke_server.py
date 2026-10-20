@@ -24,6 +24,7 @@ SCHEME = 'wss' if CERT else 'ws'
 SCHEME_HTTP = 'https' if CERT else 'http'
 clients = set()
 JPG = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jpg', 'big_420.jpg'), 'rb').read()
+GIF = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gif', 'anim.gif'), 'rb').read()
 PNG = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img', 'big_rgb_interlaced.png'), 'rb').read()
 state = {'seq': 100, 'next_id': 500, 'limited': False, 'missed': False}
 
@@ -115,6 +116,9 @@ async def rest_conn(reader, writer):
                     writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
                     await writer.drain()
                     break
+                elif path == '/img/animated.gif':      # a proxy that answers with a GIF whatever was asked
+                    writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nContent-Length: %d\r\n\r\n' % len(GIF)).encode() + GIF)
+                    await writer.drain()
                 elif path == '/img/photo.jpg':
                     if 'format=jpeg' not in query:
                         await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'no format=jpeg: ' + query})
