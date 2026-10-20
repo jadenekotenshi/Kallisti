@@ -6,9 +6,12 @@ A native Discord client for OPENSTEP 4.2, in C89/Objective-C. Fifth in the famil
 core (copy-and-diverge, not a shared library) and reuses its hardware-proven AppKit patterns (hand-built
 windows, a polled run-loop timer, the entropy-seeding panel). One window shows every server and channel.
 
-**Status: v0.1.0 written, not yet run on OPENSTEP.** The engine is complete and tested on the development
-host, including live against discord.com; the AppKit front end builds and runs against a fake Discord under the
-modern Cocoa, but the OPENSTEP build (`Makefile.openstep`) has never been tried on real hardware. What exists:
+**Status: v0.1.0.** Runs on real OPENSTEP 4.2 (i386): signing in, servers and channels, history and live
+messages, sending, direct messages, inline pictures and GIF animation, custom and Unicode emoji, reactions, file
+downloads and uploads (including drag and drop), typing indicators, proxies and saving a channel's log have all
+been used there. The m68k and SPARC builds, the fat binary and the installer package have not been tried yet.
+`make test` and the smoke tests (`ui-smoke`, `client-smoke`, ...) run on the development host against a fake
+Discord, and the engine has been run live against discord.com. What exists:
 
 - `core/` -- the crypto/TLS stack from RatChat (AES-GCM, ChaCha20-Poly1305, SHA-1/2, X25519, P-256, RSA,
   X.509, TLS 1.2 client), unchanged apart from dropping the IRC and DCC parts.
