@@ -1,6 +1,7 @@
 #import "Compat.h"
 #include "model.h"
 #include "emoji.h"
+#include "kms.h"
 
 /* The messages of one channel and a field to type into: a scrolling, coloured log above an input that grows to fit what is typed.  Used
  * for the right-hand side of the main window (where -setChannel: follows the list's selection) and for each
@@ -14,6 +15,7 @@
     NSTextView   *messageText;
     NSScrollView *inputScroll;           /* around inputText; grows with what is typed, up to a limit */
     NSTextView   *inputText;
+    NSTextField  *typingLabel;           /* "Ann is typing..." */
     float         inputHeight;           /* current height of the input; 0 until laid out */
     NSString     *channel;               /* id of the channel shown, or nil */
     char          lastDay[16];           /* the day of the last message drawn, for the date separators */
@@ -36,6 +38,8 @@
 - (void)inputReturnPressed:(BOOL)newline;     /* Return sends; Shift- or Alt-Return (newline YES) adds a line */
 - (void)setDraft:(NSString *)text;            /* put text in the input without sending, for the tests */
 - (NSString *)draft;
+- (void)updateTypingAt:(KMs)now;                /* refresh the "is typing" line; call it often, it is cheap */
+- (NSString *)typingString;
 - (float)inputHeight;
 - (void)typeText:(NSString *)text;            /* as if typed and Return pressed, for the tests */
 @end

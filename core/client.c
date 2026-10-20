@@ -107,7 +107,7 @@ void kc_init(KClient *kc, const char *token, int is_bot)
     rest_init(&kc->rest, kc->token, is_bot);
     gw_init(&kc->gw, kc->token,
             is_bot ? (GW_INTENT_GUILDS | GW_INTENT_GUILD_MESSAGES | GW_INTENT_DIRECT_MESSAGES |
-                  GW_INTENT_GUILD_REACTIONS | GW_INTENT_DM_REACTIONS |
+                  GW_INTENT_GUILD_REACTIONS | GW_INTENT_DM_REACTIONS | GW_INTENT_GUILD_TYPING | GW_INTENT_DM_TYPING |
                   GW_INTENT_MESSAGE_CONTENT) : 0);
     model_init(&kc->model);
     kc->state = KC_IDLE;
@@ -1133,6 +1133,7 @@ static void fetch_pump(KClient *kc, KMs now)
 
 void kc_tick(KClient *kc, KMs now)
 {
+    kc->model.now_ms = now;
     rest_pump(kc, now);
     gateway_pump(kc, now);
     fetch_pump(kc, now);

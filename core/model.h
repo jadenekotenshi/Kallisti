@@ -19,6 +19,7 @@
 #define KALLISTI_MODEL_H
 
 #include "emoji.h"
+#include "kms.h"
 #include <stddef.h>
 #include "gateway.h"
 #include "json.h"
@@ -33,6 +34,8 @@ enum { CH_TEXT = 0, CH_DM = 1, CH_GROUP_DM = 3, CH_CATEGORY = 4, CH_ANNOUNCEMENT
 #define MODEL_MAX_ATTACHMENTS 6
 #define MODEL_MAX_EMOJI 24
 #define MODEL_MAX_REACTS 20
+#define MODEL_MAX_TYPERS 8
+#define MODEL_TYPING_MS 10000U      /* how long a TYPING_START counts (Discord's clients show about as long) */
 
 typedef struct {
     char url[480];               /* where to fetch it: Discord's media proxy URL if it sent one */
@@ -81,6 +84,12 @@ typedef struct {
 } Message;
 
 typedef struct {
+    char user_id[24];
+    char name[132];
+    KMs until;                   /* when it stops counting, on the model's clock (Model.now_ms) */
+} Typer;
+
+typedef struct {
     char id[24];
     char guild_id[24];
     char parent_id[24];          /* the category, or "" */
@@ -92,6 +101,8 @@ typedef struct {
     int unread;                  /* messages that arrived while nobody had marked the channel read */
     int mentions;                /* of those, how many mention us */
     int history_loaded;
+    Typer typing[MODEL_MAX_TYPERS];     /* who is typing, from TYPING_START events */
+    int ntyping;
 } Channel;
 
 typedef struct {
@@ -129,6 +140,7 @@ typedef struct {
     ModelChange changes[MODEL_MAX_CHANGES];
     int nchanges;
     int overflow;
+    KMs now_ms;                  /* the caller's clock (milliseconds, may wrap): set it before feeding events and before asking who is typing */
 } Model;
 
 void model_init(Model *m);
@@ -150,6 +162,10 @@ void model_ingest_private_channel(Model *m, const JNode *chan);
 Guild *model_find_guild(Model *m, const char *id);
 Channel *model_find_channel(Model *m, const char *channel_id);
 Message *model_find_message(Channel *c, const char *message_id);
+
+/* Who is typing in the channel right now, as a sentence for a status line ("Ann is typing...", "Ann and Bob are typing...",
+ * "Several people are typing..."), or "" if nobody is. Writes at most cap-1 bytes. */
+void model_typing_text(const Channel *c, KMs now_ms, char *out, size_t cap);
 
 /* What to put on a reaction request for the emoji a person typed (out: the emoji in UTF-8, or "name:id" for a custom one).
  * `text` may be: an emoji; ":shortcode:" (looked up in `pack`, which may be NULL); ":name:" of a custom emoji seen in the

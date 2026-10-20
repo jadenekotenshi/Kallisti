@@ -1,4 +1,5 @@
 #import "Compat.h"
+#include "kms.h"
 #import "ChannelPane.h"
 #include "model.h"
 
@@ -32,6 +33,8 @@
 - (NSString *)statusString;
 - (void)typeText:(NSString *)text;
 - (void)setDraft:(NSString *)text;
+- (void)updateTypingAt:(KMs)now;                /* the "is typing" line */
+- (NSString *)typingString;
 - (NSString *)draft;
 - (float)inputHeight;
 - (void)inputReturnPressed:(BOOL)newline;

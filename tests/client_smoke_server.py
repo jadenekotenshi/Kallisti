@@ -228,6 +228,12 @@ async def rest_conn(reader, writer):
                                               'proxy_url': '%s://localhost:%d/img/cat.png?ex=1&hm=abc' % (SCHEME_HTTP, PORT),
                                               'width': 300, 'height': 200, 'content_type': 'image/png'}]
                         await broadcast('MESSAGE_CREATE', pm)
+                    if content == 'typing':
+                        await broadcast('TYPING_START', {'channel_id': '200', 'guild_id': '100', 'user_id': '7', 'timestamp': 1,
+                                                         'member': {'nick': 'Typist', 'user': {'id': '7', 'username': 'someone'}}})
+                    if content == 'typingdone':
+                        state['next_id'] += 1
+                        await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'done typing', author='7', name='Typist'))
                     if content == 'savefile':
                         state['next_id'] += 1
                         fm = msg(state['next_id'], 'a file', author='7', name='someone')
@@ -298,7 +304,7 @@ async def handler(ws):
                 await ws.send(frame(11))
             elif m['op'] == 2:
                 d = m['d']
-                assert d['token'] == TOKEN and d['intents'] == (1 | (1 << 9) | (1 << 10) | (1 << 12) | (1 << 13) | (1 << 15)), d
+                assert d['token'] == TOKEN and d['intents'] == (1 | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15)), d
                 state['seq'] = 100
                 await ws.send(frame(0, {'session_id': 'sess-1', 'resume_gateway_url': '%s://localhost:%d' % (SCHEME, PORT + 1),
                                         'user': {'id': '42', 'username': 'Kallisti-bot'},

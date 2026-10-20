@@ -92,6 +92,15 @@ before any OPENSTEP code:
      intents, which need no Developer Portal switch).
    - The message box grows as you type, up to about six lines, then scrolls. Return sends; Shift- or Alt-Return
      starts a new line.
+   - Downloads: Discord > Attachments in This Channel... (Cmd-I) lists every file attached to the messages shown, not only
+     pictures. Save... (or a double-click on a file that is not a picture) asks where, then fetches the file from
+     Discord's own address, untouched (up to 32 MB), and writes it as it came. Open still shows pictures in the viewer.
+   - Reacting: Discord > React to a Message... (Cmd-R) lists the latest messages; pick one and type an emoji --
+     `:thumbsup:`, a custom emoji's `:name:` (one seen in the channel), a pasted `<:name:id>`, or the emoji itself -- or
+     choose from the Common menu. React adds yours, Remove Mine takes it back. The bot needs the Add Reactions
+     permission; a refusal appears in the log.
+   - Who is typing: a small line between the log and the input says "Ann is typing...", "Ann and Bob are typing...",
+     or "Several people are typing...". Each TYPING_START counts for 10 seconds, and a message from that person ends it.
    - Unicode emoji: OPENSTEP's fonts have none, so Kallisti draws them as pictures. `app/emoji.pack` (2.5 MB, copied
      into the application bundle by `Makefile.openstep`) holds a 16x16 picture for each of the 3,838 emoji Twemoji 15.1
      has; `core/emoji.c` finds the emoji in a message -- skin tones, flags, keycaps, joined families, tag flags -- by

@@ -394,8 +394,15 @@ static KMs app_now_ms(void)
 - (void)tick:(NSTimer *)t
 {
     if (!kc) return;
-    kc_tick(kc, app_now_ms());
-    [self drainEngine];
+    {
+        KMs now = app_now_ms();
+        unsigned wi;
+
+        kc_tick(kc, now);
+        [self drainEngine];
+        [mainController updateTypingAt:now];
+        for (wi = 0; wi < [channelWindows count]; wi++) [[channelWindows objectAtIndex:wi] updateTypingAt:now];
+    }
 }
 
 - (void)drainEngine

@@ -540,6 +540,55 @@ static void test_resolve_reaction(void)
     model_free(m);
 }
 
+static void test_typing(void)
+{
+    Model *m = start();
+    Channel *c = model_find_channel(m, "201");
+    char out[200];
+
+    m->now_ms = 1000;
+    model_typing_text(c, m->now_ms, out, sizeof(out));
+    CHECK(out[0] == '\0');
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"201\",\"guild_id\":\"100\",\"user_id\":\"7\",\"timestamp\":1,\"member\":{\"nick\":\"Ann\",\"user\":{\"id\":\"7\",\"username\":\"ann\"}}}");
+    model_typing_text(c, m->now_ms, out, sizeof(out));
+    CHECK(strcmp(out, "Ann is typing...") == 0);
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"201\",\"user_id\":\"8\",\"member\":{\"user\":{\"id\":\"8\",\"username\":\"bob\",\"global_name\":\"Bobby\"}}}");
+    model_typing_text(c, m->now_ms, out, sizeof(out));
+    CHECK(strcmp(out, "Ann and Bobby are typing...") == 0);
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"201\",\"user_id\":\"9\",\"member\":{\"user\":{\"id\":\"9\",\"username\":\"cy\"}}}");
+    model_typing_text(c, m->now_ms, out, sizeof(out));
+    CHECK(strcmp(out, "Ann, Bobby and cy are typing...") == 0);
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"201\",\"user_id\":\"10\",\"member\":{\"user\":{\"id\":\"10\",\"username\":\"di\"}}}");
+    model_typing_text(c, m->now_ms, out, sizeof(out));
+    CHECK(strcmp(out, "Several people are typing...") == 0);
+    /* ourselves, unknown channels and junk do not count; the same person again only renews */
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"201\",\"user_id\":\"42\"}");
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"999\",\"user_id\":\"7\"}");
+    dispatch(m, "TYPING_START", "{}");
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"201\",\"user_id\":\"7\"}");
+    CHECK(c->ntyping == 4);
+    /* a message ends that person's typing; time ends the rest (the clock may wrap) */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"50\",\"channel_id\":\"201\",\"content\":\"x\",\"author\":{\"id\":\"10\",\"username\":\"di\"}}");
+    CHECK(c->ntyping == 3);
+    model_typing_text(c, m->now_ms + MODEL_TYPING_MS - 1, out, sizeof(out));
+    CHECK(strcmp(out, "Ann, Bobby and cy are typing...") == 0);
+    model_typing_text(c, m->now_ms + MODEL_TYPING_MS, out, sizeof(out));
+    CHECK(out[0] == '\0');
+    c->ntyping = 0;
+    m->now_ms = 0xFFFFFF00U;                                    /* near the wrap of the 32-bit clock */
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"201\",\"user_id\":\"11\",\"member\":{\"nick\":\"Eve\"}}");
+    model_typing_text(c, m->now_ms + 5000U, out, sizeof(out));
+    CHECK(strstr(out, "Eve") != NULL);
+    model_typing_text(c, m->now_ms + 20000U, out, 6);            /* a small buffer is cut, not overrun */
+    CHECK(strlen(out) < 6);
+    /* in a direct message the name is one we have seen */
+    dispatch(m, "CHANNEL_CREATE", "{\"id\":\"920\",\"type\":1,\"recipients\":[{\"id\":\"5\",\"username\":\"dmfriend\"}]}");
+    dispatch(m, "TYPING_START", "{\"channel_id\":\"920\",\"user_id\":\"5\"}");
+    model_typing_text(model_find_channel(m, "920"), m->now_ms, out, sizeof(out));
+    CHECK(strstr(out, "is typing") != NULL);
+    model_free(m);
+}
+
 static void test_embeds(void)
 {
     Model *m = start();
@@ -849,6 +898,7 @@ int main(void)
     test_stickers();
     test_custom_emoji();
     test_reactions();
+    test_typing();
     test_resolve_reaction();
     test_fuzz();
     TEST_DONE("model");

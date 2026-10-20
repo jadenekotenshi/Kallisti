@@ -82,6 +82,16 @@ static BOOL hasNoMyReaction(AppController *app)
     return [s rangeOfString:@"reactui"].location != NSNotFound && [s rangeOfString:@"1*]"].location == NSNotFound;
 }
 
+static BOOL isTyping(AppController *app)
+{
+    return [[[app mainController] typingString] isEqualToString:@"Typist is typing..."];
+}
+
+static BOOL notTyping(AppController *app)
+{
+    return [[[app mainController] typingString] length] == 0;
+}
+
 static long fileSize(NSString *path)
 {
     struct stat st;
@@ -362,6 +372,13 @@ int main(int argc, char **argv)
             }
         }
     }
+
+    /* who is typing shows on the line above the input, and a message from them ends it */
+    CHECK([[[app mainController] typingString] length] == 0);
+    [main typeText:@"typing"];
+    CHECK(waitFor(isTyping, app, 10.0));
+    [main typeText:@"typingdone"];
+    CHECK(waitFor(notTyping, app, 10.0));
 
     /* an attachment that is not a picture is listed, and saved from Discord's own address (not the media proxy's) */
     [main typeText:@"savefile"];

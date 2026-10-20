@@ -6,6 +6,7 @@
 
 #define INPUT_HEIGHT 24.0
 #define INPUT_MAX_HEIGHT 110.0
+#define TYPING_HEIGHT 16.0
 
 /* The pane's view: lays its children out by hand since the input's height varies. */
 @interface PaneView : NSView
@@ -130,13 +131,17 @@ static NSColor *author_color(const char *name)
     [inputText setDelegate:(id)self];
     [inputScroll setDocumentView:inputText];
     [view addSubview:inputScroll];
+    typingLabel = [ui_label(@"", NSMakeRect(0, 0, frame.size.width, TYPING_HEIGHT)) retain];
+    [typingLabel setFont:[NSFont systemFontOfSize:10.0]];
+    [typingLabel setTextColor:[NSColor darkGrayColor]];
+    [view addSubview:typingLabel];
     [self layoutSubviews];
     return self;
 }
 
 - (void)dealloc
 {
-    [view release]; [messageScroll release]; [messageText release]; [inputScroll release]; [inputText release];
+    [view release]; [messageScroll release]; [messageText release]; [inputScroll release]; [inputText release]; [typingLabel release];
     [channel release]; [normalFont release]; [boldFont release];
     [super dealloc];
 }
@@ -206,7 +211,8 @@ static NSColor *author_color(const char *name)
         atEnd = NSMaxY(vis) >= [messageText frame].size.height - 2.0;
     }
     [inputScroll setFrame:NSMakeRect(0, 0, b.size.width, inH)];
-    [messageScroll setFrame:NSMakeRect(0, inH, b.size.width, b.size.height - inH)];
+    [typingLabel setFrame:NSMakeRect(2, inH + 1, b.size.width - 4, TYPING_HEIGHT - 2)];
+    [messageScroll setFrame:NSMakeRect(0, inH + TYPING_HEIGHT, b.size.width, b.size.height - inH - TYPING_HEIGHT)];
     [inputScroll setHasVerticalScroller:(inH >= INPUT_MAX_HEIGHT)];
     if (atEnd) [messageText scrollRangeToVisible:NSMakeRange([[messageText string] length], 0)];
 }
@@ -238,6 +244,20 @@ static NSColor *author_color(const char *name)
     [inputText setString:text];
     [self textDidChange:nil];
 }
+
+/* Who is typing in this channel, on the line between the log and the input; called from the polling timer. */
+- (void)updateTypingAt:(KMs)now
+{
+    char text[200];
+    Channel *c = channel ? model_find_channel(model, [channel cString]) : NULL;
+    NSString *s;
+
+    model_typing_text(c, now, text, sizeof(text));
+    s = S(text);
+    if (![s isEqualToString:[typingLabel stringValue]]) [typingLabel setStringValue:s];
+}
+
+- (NSString *)typingString { return [typingLabel stringValue]; }
 
 - (NSString *)draft { return [inputText string]; }
 - (float)inputHeight { return (inputHeight > 0) ? inputHeight : INPUT_HEIGHT; }

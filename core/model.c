@@ -888,6 +888,97 @@ static void on_reaction(Model *m, const char *kind, const JNode *d)
     push_change(m, MC_MESSAGE_CHANGED, c->guild_id, c->id, mid);
 }
 
+/* ---------------------------------------------------------------- who is typing */
+
+static void typing_forget(Channel *c, const char *user_id)
+{
+    int i;
+
+    for (i = 0; i < c->ntyping; i++) {
+        if (strcmp(c->typing[i].user_id, user_id) == 0) {
+            memmove(&c->typing[i], &c->typing[i + 1], (size_t)(c->ntyping - i - 1) * sizeof(Typer));
+            c->ntyping--;
+            return;
+        }
+    }
+}
+
+static void on_typing(Model *m, const JNode *d)
+{
+    const char *cid = id_of(d, "channel_id"), *uid = id_of(d, "user_id");
+    Channel *c = cid != NULL ? model_find_channel(m, cid) : NULL;
+    const JNode *member;
+    Typer *t = NULL;
+    const char *nick, *name = NULL;
+    int i;
+
+    if (c == NULL || uid == NULL || strcmp(uid, m->user_id) == 0) {
+        return;
+    }
+    for (i = 0; i < c->ntyping; i++) {
+        if (strcmp(c->typing[i].user_id, uid) == 0) {
+            t = &c->typing[i];
+        }
+    }
+    if (t == NULL) {
+        if (c->ntyping >= MODEL_MAX_TYPERS) {
+            return;
+        }
+        t = &c->typing[c->ntyping++];
+        memset(t, 0, sizeof(*t));
+        copy_utf8(t->user_id, sizeof(t->user_id), uid);
+    }
+    member = json_get(d, "member");
+    nick = json_get_str(member, "nick", NULL);
+    if (nick != NULL && nick[0] != '\0') {
+        name = nick;
+    } else if (json_get(member, "user") != NULL) {
+        name = user_display(json_get(member, "user"));
+    }
+    if (name == NULL) {                                  /* a direct message carries no member: use a name we have seen */
+        for (i = c->nmsgs - 1; i >= 0; i--) {
+            if (strcmp(c->msgs[i].author_id, uid) == 0) {
+                name = c->msgs[i].author;
+                break;
+            }
+        }
+    }
+    if (name != NULL || t->name[0] == '\0') {
+        copy_utf8(t->name, sizeof(t->name), name != NULL ? name : "Someone");
+    }
+    t->until = m->now_ms + MODEL_TYPING_MS;
+}
+
+void model_typing_text(const Channel *c, KMs now_ms, char *out, size_t cap)
+{
+    const char *names[MODEL_MAX_TYPERS];
+    int n = 0, i;
+    char buf[3 * 140 + 64];
+
+    if (cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    for (i = 0; c != NULL && i < c->ntyping; i++) {
+        if ((long)(c->typing[i].until - now_ms) > 0) {
+            names[n++] = c->typing[i].name;
+        }
+    }
+    if (n == 0) {
+        return;
+    }
+    if (n == 1) {
+        sprintf(buf, "%s is typing...", names[0]);
+    } else if (n == 2) {
+        sprintf(buf, "%s and %s are typing...", names[0], names[1]);
+    } else if (n == 3) {
+        sprintf(buf, "%s, %s and %s are typing...", names[0], names[1], names[2]);
+    } else {
+        strcpy(buf, "Several people are typing...");
+    }
+    copy_utf8(out, cap, buf);
+}
+
 /* ---------------------------------------------------------------- picking an emoji to react with */
 
 static int all_digits(const char *s, size_t n)
@@ -1455,6 +1546,7 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     memmove(&c->msgs[at + 1], &c->msgs[at], (size_t)(c->nmsgs - at) * sizeof(Message));
     c->msgs[at] = tmp;
     c->nmsgs++;
+    typing_forget(c, tmp.author_id);                     /* a message ends that person's typing */
     if (from_gateway) {
         push_change(m, MC_MESSAGE_ADDED, c->guild_id, c->id, id);
         if (at == c->nmsgs - 1 && strcmp(tmp.author_id, m->user_id) != 0) {
@@ -1830,6 +1922,8 @@ void model_gateway_event(Model *m, const GwEvent *ev)
         model_ingest_message(m, ev->d, 1);
     } else if (strcmp(n, "MESSAGE_UPDATE") == 0) {
         message_update(m, ev->d);
+    } else if (strcmp(n, "TYPING_START") == 0) {
+        on_typing(m, ev->d);
     } else if (strcmp(n, "MESSAGE_REACTION_ADD") == 0) {
         on_reaction(m, "ADD", ev->d);
     } else if (strcmp(n, "MESSAGE_REACTION_REMOVE") == 0) {

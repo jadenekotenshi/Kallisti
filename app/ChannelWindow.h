@@ -1,4 +1,5 @@
 #import "Compat.h"
+#include "kms.h"
 #import "ChannelPane.h"
 #include "model.h"
 
@@ -22,6 +23,7 @@
 - (void)reloadMessages;
 - (NSString *)messageString;
 - (void)typeText:(NSString *)text;
+- (void)updateTypingAt:(KMs)now;
 @end
 
 @interface NSObject (ChannelWindowOwner)

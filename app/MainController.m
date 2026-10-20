@@ -311,6 +311,8 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 - (NSString *)statusString { return [statusLabel stringValue]; }
 - (void)typeText:(NSString *)text { [pane typeText:text]; }
 - (void)setDraft:(NSString *)text { [pane setDraft:text]; }
+- (void)updateTypingAt:(KMs)now { [pane updateTypingAt:now]; }
+- (NSString *)typingString { return [pane typingString]; }
 - (NSString *)draft { return [pane draft]; }
 - (float)inputHeight { return [pane inputHeight]; }
 - (void)inputReturnPressed:(BOOL)newline { [pane inputReturnPressed:newline]; }

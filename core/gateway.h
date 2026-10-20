@@ -38,8 +38,10 @@ typedef KMs GwMs;
 #define GW_INTENT_GUILDS           (1L << 0)
 #define GW_INTENT_GUILD_MESSAGES   (1L << 9)
 #define GW_INTENT_GUILD_REACTIONS  (1L << 10)
+#define GW_INTENT_GUILD_TYPING     (1L << 11)
 #define GW_INTENT_DIRECT_MESSAGES  (1L << 12)
 #define GW_INTENT_DM_REACTIONS     (1L << 13)
+#define GW_INTENT_DM_TYPING        (1L << 14)
 #define GW_INTENT_MESSAGE_CONTENT  (1L << 15)    /* privileged: switch it on in the Developer Portal */
 
 typedef enum {
