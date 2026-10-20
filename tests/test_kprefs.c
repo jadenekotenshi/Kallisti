@@ -26,7 +26,7 @@ int main(void)
     remove(path);
 
     kprefs_defaults(&p);
-    CHECK(p.is_bot == 1 && p.remember == 0 && p.token[0] == '\0' && p.check_dates == 1 && p.emoji_pictures == 1);
+    CHECK(p.is_bot == 1 && p.remember == 0 && p.token[0] == '\0' && p.check_dates == 1 && p.emoji_pictures == 1 && p.inline_images == 1);
     CHECK(kprefs_load(&q, path) == 0 && q.is_bot == 1 && !q.remember && q.token[0] == '\0');       /* no file */
     CHECK(kprefs_load(NULL, path) == -1 && kprefs_load(&q, NULL) == -1);
 
@@ -36,12 +36,13 @@ int main(void)
     p.is_bot = 0;
     p.check_dates = 0;
     p.emoji_pictures = 0;
+    p.inline_images = 0;
     strcpy(p.proxy, "socks5://proxy.lan:1080");
     strcpy(p.proxy_user, "bob");
     strcpy(p.proxy_pass, "s3cret");
     CHECK(kprefs_save(&p, path) == 0);
     CHECK(stat(path, &st) == 0 && (st.st_mode & 077) == 0);
-    CHECK(kprefs_load(&q, path) == 0 && q.remember && !q.is_bot && !q.check_dates && !q.emoji_pictures && strcmp(q.token, "abc.def-123") == 0);
+    CHECK(kprefs_load(&q, path) == 0 && q.remember && !q.is_bot && !q.check_dates && !q.emoji_pictures && !q.inline_images && strcmp(q.token, "abc.def-123") == 0);
     CHECK(strcmp(q.proxy, "socks5://proxy.lan:1080") == 0 && strcmp(q.proxy_user, "bob") == 0 && strcmp(q.proxy_pass, "s3cret") == 0);
 
     /* not remembered: the token never reaches the file */

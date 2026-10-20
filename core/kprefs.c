@@ -12,6 +12,7 @@ void kprefs_defaults(KPrefs *p)
     p->is_bot = 1;
     p->check_dates = 1;
     p->emoji_pictures = 1;
+    p->inline_images = 1;
 }
 
 static void copy_value(char *dst, size_t cap, const char *v)
@@ -62,6 +63,8 @@ int kprefs_load(KPrefs *p, const char *path)
             copy_value(p->proxy_pass, sizeof(p->proxy_pass), eq);
         } else if (strcmp(line, "emoji") == 0) {
             p->emoji_pictures = eq[0] != '0';
+        } else if (strcmp(line, "images") == 0) {
+            p->inline_images = eq[0] != '0';
         } else if (strcmp(line, "dates") == 0) {
             p->check_dates = eq[0] != '0';
         }
@@ -89,6 +92,7 @@ int kprefs_save(const KPrefs *p, const char *path)
     fprintf(f, "bot=%d\n", p->is_bot ? 1 : 0);
     fprintf(f, "dates=%d\n", p->check_dates ? 1 : 0);
     fprintf(f, "emoji=%d\n", p->emoji_pictures ? 1 : 0);
+    fprintf(f, "images=%d\n", p->inline_images ? 1 : 0);
     fprintf(f, "remember=%d\n", p->remember ? 1 : 0);
     if (p->proxy[0] != '\0') {
         fprintf(f, "proxy=%s\n", p->proxy);

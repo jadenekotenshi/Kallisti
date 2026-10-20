@@ -187,8 +187,8 @@ static KMs app_now_ms(void)
     [self addItem:@"Attach File..." action:@selector(attachFile:) key:@"u" target:self toMenu:m];
     [self addItem:@"Load Older Messages" action:@selector(loadOlder:) key:@"l" target:self toMenu:m];
     [self addItem:@"Save Message Log..." action:@selector(saveLog:) key:@"s" target:self toMenu:m];
-    [self addItem:@"Show Images Inline (Experimental)" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
-    inlineItem = [m itemWithTitle:@"Show Images Inline (Experimental)"];
+    [self addItem:@"Show Images as Links Only" action:@selector(toggleInline:) key:@"" target:self toMenu:m];
+    inlineItem = [m itemWithTitle:@"Show Images as Links Only"];
     [self addItem:@"Show Emoji as Pictures" action:@selector(toggleEmoji:) key:@"" target:self toMenu:m];
     emojiItem = [m itemWithTitle:@"Show Emoji as Pictures"];
     [self addItem:@"Check Certificate Dates" action:@selector(toggleDates:) key:@"" target:self toMenu:m];
@@ -272,6 +272,7 @@ static KMs app_now_ms(void)
         }
         [self setEmojiPictures:prefs.emoji_pictures ? YES : NO];
     }
+    [self setInlineImages:prefs.inline_images ? YES : NO];
 
     source = roots_load_default(&trust, ROOTS_SYSTEM_DIR, &count);
     SSTrace("trust store: %d certificates from %s", count,
@@ -978,13 +979,15 @@ static KMs app_now_ms(void)
 - (void)setInlineImages:(BOOL)on
 {
     inlineImages = on;
-    [inlineItem setTitle:on ? @"Show Images as Links Only" : @"Show Images Inline (Experimental)"];
+    prefs.inline_images = on ? 1 : 0;
+    [inlineItem setTitle:on ? @"Show Images as Links Only" : @"Show Images Inline"];
     if (mainController) [self applyInlineSetting];
 }
 
 - (void)toggleInline:(id)sender
 {
     [self setInlineImages:!inlineImages];
+    [self savePrefs];
 }
 
 /* The thumbnail for an attachment address if it is on hand; otherwise nil and a download is started. */

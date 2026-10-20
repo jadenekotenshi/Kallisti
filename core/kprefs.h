@@ -11,6 +11,7 @@ typedef struct {
     char proxy_user[128];
     char proxy_pass[128];        /* kept only with "remember", like the token */
     int emoji_pictures;          /* 1 (default): draw Unicode emoji as pictures (needs app/emoji.pack) */
+    int inline_images;           /* 1 (default): show attached pictures inside the message log, not only as links */
     int check_dates;             /* 1 (default): reject certificates outside their validity dates; turn off only
                                   * when the computer's clock is wrong */
 } KPrefs;

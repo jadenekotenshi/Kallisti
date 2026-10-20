@@ -143,8 +143,10 @@ before any OPENSTEP code:
      parameter, so it stays a GIF), decodes every frame composited onto the screen with all three disposal methods, and
      plays it in the viewer window on a timer (delays as browsers read them: 0 or 10 ms means 100 ms). At most 100 frames
      and 3 million pixels in all are kept, so the memory a GIF can take is bounded; an animation cut short in the file
-     plays what is there. Inline thumbnails stay still pictures. *Show Images Inline (Experimental)* draws thumbnails inside the log
-     with `NSTextAttachment`, which is untested on OPENSTEP; leave it off if the log misbehaves.
+     plays what is there. Inline thumbnails stay still pictures. Pictures are shown inside the log by default (as `NSTextAttachment`s, which
+     is confirmed on i386 and SPARC); Discord > Show Images as Links Only turns that off, and the choice is remembered
+     (`images=0` in `~/.kallisti/prefs`) -- worth doing on a slow machine such as a 68040, where decoding and drawing
+     pictures costs the most.
 
 **v0.1 scope:** connect, list servers and their text channels, read live messages, send messages -- plus the
 three additions above. No reactions, embeds beyond plain text, or voice. Known limits: characters outside the
