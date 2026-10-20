@@ -38,6 +38,8 @@
     NSMutableDictionary *imageNames;       /* url -> file name, for the pictures being fetched */
     NSMutableDictionary *thumbs;           /* url -> NSImage (or an empty string if it failed): inline pictures */
     NSMutableSet        *thumbsAsked;
+    BOOL                thumbReloadWanted;  /* pictures arrived since the log was last drawn */
+    KMs                 lastThumbReload;
     BOOL                inlineImages;      /* the experimental inline-pictures switch */
     NSMenuItem          *inlineItem;
     EmojiPack           *emojiPack;        /* the Unicode emoji pictures, or NULL */

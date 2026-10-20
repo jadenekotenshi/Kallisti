@@ -95,6 +95,7 @@ static KMs app_now_ms(void)
 - (NSString *)findEmojiPack;
 - (void)applyInlineSetting;
 - (void)reloadAllMessages;
+- (void)maybeReloadThumbs;
 - (void)closeImageWindows;
 - (void)sendText:(NSString *)text toChannel:(NSString *)channelId notify:(id)target;
 - (void)attachFile:(id)sender;
@@ -445,6 +446,8 @@ static KMs app_now_ms(void)
             if (img.ok) thumb = [[[NSImage alloc] initWithData:[NSData dataWithBytes:img.tiff length:img.tiff_len]] autorelease];
             [thumbs setObject:(thumb ? (id)thumb : (id)@"") forKey:url];                /* @"": it failed, do not ask again */
             [thumbsAsked removeObject:url];
+            SSTrace("thumb %s: %u bytes, connect %u ms, download %u ms, decode %u ms", img.ok ? "ok" : "failed", (unsigned)img.bytes,
+                    (unsigned)img.ms_connect, (unsigned)img.ms_download, (unsigned)img.ms_decode);
             kc_image_free(&img);
             thumbsArrived = YES;
             continue;
@@ -482,7 +485,8 @@ static KMs app_now_ms(void)
         kc_image_free(&img);
         [imageNames removeObjectForKey:url];
     }
-    if (thumbsArrived) [self reloadAllMessages];
+    if (thumbsArrived) thumbReloadWanted = YES;
+    [self maybeReloadThumbs];
     while (kc && kc_next_change(kc, &ch)) {
         [mainController modelChanged:&ch];
         for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] modelChanged:&ch];
@@ -801,12 +805,28 @@ static KMs app_now_ms(void)
 
 /* ---------------------------------------------------------------- pictures */
 
+/* Drawing the whole log again for every picture that arrives makes a page of pictures take quadratic time -- painful on a
+ * slow machine. So the redraw waits for the picture queue to run dry (which is when the next batch of pictures is asked
+ * for anyway), or at most 1.5 seconds. */
+- (void)maybeReloadThumbs
+{
+    KMs now = app_now_ms();
+
+    if (!thumbReloadWanted) return;
+    if (kc && (kc->nfq > 0 || kc->fphase != 0) && (KMs)(now - lastThumbReload) < 1500U) return;
+    thumbReloadWanted = NO;
+    lastThumbReload = now;
+    [self reloadAllMessages];
+}
+
 - (void)reloadAllMessages
 {
     int i;
+    KMs t0 = app_now_ms();
 
     [mainController reloadMessages];
     for (i = 0; i < (int)[channelWindows count]; i++) [[channelWindows objectAtIndex:i] reloadMessages];
+    SSTrace("redraw of the message log: %u ms", (unsigned)(KMs)(app_now_ms() - t0));
 }
 
 - (void)applyInlineSetting
