@@ -87,6 +87,11 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
     if (change->type == MC_RESET || change->type == MC_GUILDS || change->type == MC_CHANNELS) [self updateTitle];
 }
 
+- (void)channelPane:(ChannelPane *)p userTypingInChannel:(NSString *)cid
+{
+    [owner channelWindow:self userTypingInChannel:cid];
+}
+
 - (void)channelPane:(ChannelPane *)p didSubmitText:(NSString *)text forChannel:(NSString *)cid
 {
     [owner channelWindow:self didSubmitText:text forChannel:cid];

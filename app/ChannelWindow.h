@@ -27,6 +27,7 @@
 @end
 
 @interface NSObject (ChannelWindowOwner)
+- (void)channelWindow:(ChannelWindow *)cw userTypingInChannel:(NSString *)cid;
 - (void)channelWindow:(ChannelWindow *)cw didSubmitText:(NSString *)text forChannel:(NSString *)cid;
 - (void)channelWindowClosed:(ChannelWindow *)cw;
 @end

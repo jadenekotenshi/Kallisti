@@ -131,7 +131,7 @@ static KMs app_now_ms(void)
     [mainController release];
     [channelWindows release];
     [dmController release];
-    [imageList release]; [reactController release]; [downloads release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release]; [emojiBase release]; [emojiImages release];
+    [imageList release]; [reactController release]; [downloads release]; [lastTypingChannel release]; [imageWindows release]; [imageNames release]; [thumbs release]; [thumbsAsked release]; [emojiBase release]; [emojiImages release];
     [kallistiDir release]; [prefsPath release]; [rngSeedPath release];
     [entropyPanel release];
     [restHost release]; [gatewayURL release];
@@ -533,6 +533,9 @@ static KMs app_now_ms(void)
 {
     int rc;
 
+    [lastTypingChannel release];                          /* Discord stops showing us as typing when the message lands */
+    lastTypingChannel = nil;
+
     if (!kc || kc->state != KC_ONLINE) {
         [target appendNotice:@"Not connected; the message was not sent."];
         return;
@@ -558,6 +561,24 @@ static KMs app_now_ms(void)
         [target appendNotice:@"That message cannot be sent."];
     }
 }
+
+/* Typing in a message box: Discord is told at most every 8 seconds per channel (it shows for about 10). */
+- (void)userTypingInChannel:(NSString *)channelId
+{
+    KMs now = app_now_ms();
+
+    if (!kc || kc->state != KC_ONLINE) return;
+    if (lastTypingChannel != nil && [lastTypingChannel isEqualToString:channelId] && (now - lastTypingAt) < 8000U) return;
+    if (kc_typing(kc, [channelId cString]) == 0) {
+        [lastTypingChannel release];
+        lastTypingChannel = [channelId retain];
+        lastTypingAt = now;
+    }
+}
+
+- (void)mainController:(MainController *)mc userTypingInChannel:(NSString *)channelId { [self userTypingInChannel:channelId]; }
+
+- (void)channelWindow:(ChannelWindow *)cw userTypingInChannel:(NSString *)channelId { [self userTypingInChannel:channelId]; }
 
 - (void)mainController:(MainController *)mc didSubmitText:(NSString *)text forChannel:(NSString *)channelId
 {

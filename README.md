@@ -100,7 +100,8 @@ before any OPENSTEP code:
      choose from the Common menu. React adds yours, Remove Mine takes it back. The bot needs the Add Reactions
      permission; a refusal appears in the log.
    - Who is typing: a small line between the log and the input says "Ann is typing...", "Ann and Bob are typing...",
-     or "Several people are typing...". Each TYPING_START counts for 10 seconds, and a message from that person ends it.
+     or "Several people are typing...". Each TYPING_START counts for 10 seconds, and a message from that person ends it. Typing in the message box tells Discord too (at most every 8 seconds per
+     channel), so others see you typing.
    - Unicode emoji: OPENSTEP's fonts have none, so Kallisti draws them as pictures. `app/emoji.pack` (2.5 MB, copied
      into the application bundle by `Makefile.openstep`) holds a 16x16 picture for each of the 3,838 emoji Twemoji 15.1
      has; `core/emoji.c` finds the emoji in a message -- skin tones, flags, keycaps, joined families, tag flags -- by

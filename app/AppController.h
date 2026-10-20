@@ -31,6 +31,8 @@
     DMController      *dmController;
     ImageListController *imageList;
     ReactController     *reactController;
+    NSString            *lastTypingChannel;  /* the channel Discord was last told we are typing in, and when */
+    KMs                  lastTypingAt;
     NSMutableDictionary *downloads;        /* url -> where the file being downloaded is to be written */
     NSMutableArray    *imageWindows;       /* every open ImageWindow */
     NSMutableDictionary *imageNames;       /* url -> file name, for the pictures being fetched */

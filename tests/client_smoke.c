@@ -181,6 +181,7 @@ static int c_has_text(KClient *kc, const char *text)
     }
     return 0;
 }
+static int c_idle_rest(KClient *kc, Seen *s) { return rest_pending(&kc->rest) == 0 && kc->npend == 0; }
 static int c_stopped(KClient *kc, Seen *s) { return kc->state == KC_STOPPED; }
 
 static int count_text(KClient *kc, const char *text)
@@ -518,6 +519,10 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(strstr(seen.errors[0], "Missing Permissions") != NULL);
         CHECK(kc_react(&kc, "200", mid, "", 0) < 0 && kc_react(&kc, "200", "abc", "x", 0) < 0 && kc_react(&kc, "bad", mid, "x", 0) < 0);
     }
+
+    /* typing: a bodyless POST that nobody answers for; bad ids are refused up front */
+    CHECK(kc_typing(&kc, "200") == 0 && kc_typing(&kc, "x") < 0 && kc_typing(&kc, "") < 0);
+    CHECK(run_until(&kc, &seen, c_idle_rest, 5000));
 
     /* the server tells us to reconnect: we resume and get what we missed */
     seen.nstates = 0;

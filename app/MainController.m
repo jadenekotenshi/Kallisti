@@ -293,6 +293,11 @@ static NSString *S(const char *s) { return ui_string_from_utf8(s); }
 
 /* ---------------------------------------------------------------- the pane's owner protocol, and the tests */
 
+- (void)channelPane:(ChannelPane *)p userTypingInChannel:(NSString *)channelId
+{
+    [owner mainController:self userTypingInChannel:channelId];
+}
+
 - (void)channelPane:(ChannelPane *)p didSubmitText:(NSString *)text forChannel:(NSString *)channelId
 {
     [owner mainController:self didSubmitText:text forChannel:channelId];

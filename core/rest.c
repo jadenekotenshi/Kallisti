@@ -294,6 +294,17 @@ long rest_react(RestClient *rc, const char *channel_id, const char *message_id, 
     return queue_job(rc, REST_REACT, remove ? "DELETE" : "PUT", path, NULL);
 }
 
+long rest_typing(RestClient *rc, const char *channel_id)
+{
+    char path[64];
+
+    if (!valid_id(channel_id)) {
+        return REST_E_BAD;
+    }
+    sprintf(path, "/channels/%s/typing", channel_id);
+    return queue_job(rc, REST_TYPING, "POST", path, NULL);
+}
+
 long rest_create_dm(RestClient *rc, const char *user_id)
 {
     JWriter w;

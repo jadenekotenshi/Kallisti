@@ -194,6 +194,10 @@ async def rest_conn(reader, writer):
                         em = {'id': emoji.split(':')[1], 'name': emoji.split(':')[0]}
                     await broadcast('MESSAGE_REACTION_ADD' if method == 'PUT' else 'MESSAGE_REACTION_REMOVE',
                                     {'user_id': '42', 'channel_id': cid, 'message_id': mid, 'emoji': em})
+            elif method == 'POST' and path == '/api/v10/channels/200/typing':
+                state['typing_posts'] = state.get('typing_posts', 0) + 1
+                writer.write(b'HTTP/1.1 204 No Content\r\n\r\n')
+                await writer.drain()
             elif method == 'POST' and path == '/api/v10/users/@me/channels':
                 rid = json.loads(body)['recipient_id']
                 if rid == '666':
@@ -228,6 +232,9 @@ async def rest_conn(reader, writer):
                                               'proxy_url': '%s://localhost:%d/img/cat.png?ex=1&hm=abc' % (SCHEME_HTTP, PORT),
                                               'width': 300, 'height': 200, 'content_type': 'image/png'}]
                         await broadcast('MESSAGE_CREATE', pm)
+                    if content == 'typingposts':
+                        state['next_id'] += 1
+                        await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'typing posts: %d' % state.get('typing_posts', 0), author='7', name='someone'))
                     if content == 'typing':
                         await broadcast('TYPING_START', {'channel_id': '200', 'guild_id': '100', 'user_id': '7', 'timestamp': 1,
                                                          'member': {'nick': 'Typist', 'user': {'id': '7', 'username': 'someone'}}})

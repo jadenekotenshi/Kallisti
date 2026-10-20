@@ -119,6 +119,28 @@ static NSString *lineWith(NSString *text, NSString *needle)
     return [text substringWithRange:NSMakeRange(from, to - from)];
 }
 
+static int typingPosts(AppController *app, int *out)
+{
+    NSString *line;
+    int n = -1;
+
+    [[app mainController] typeText:@"typingposts"];
+    {
+        NSDate *end = [NSDate dateWithTimeIntervalSinceNow:10.0];
+
+        while ([end timeIntervalSinceNow] > 0) {
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+            line = lineWith([[app mainController] messageString], @"typing posts: ");
+            if (line != nil && sscanf([line cString] + [line rangeOfString:@"typing posts: "].location + 14, "%d", &n) == 1 && n != *out) {
+                *out = n;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+
 static BOOL hasUnicodeEmojiMessage(AppController *app)
 {
     NSString *t = [[app mainController] messageString];
@@ -371,6 +393,20 @@ int main(int argc, char **argv)
                 CHECK([[app imageWindows] count] == 0);
             }
         }
+    }
+
+    /* typing in the box tells Discord, but not more than once every 8 seconds */
+    {
+        int before = -1, after = -1;
+
+        CHECK(typingPosts(app, &before));
+        [main setDraft:@"hel"];
+        [main setDraft:@"hello"];
+        [main setDraft:@"hello there"];
+        after = before;
+        CHECK(typingPosts(app, &after));
+        CHECK(after == before + 1);       /* one post for all that typing (and none for the next message's first keystroke) */
+        [main setDraft:@""];
     }
 
     /* who is typing shows on the line above the input, and a message from them ends it */

@@ -46,6 +46,8 @@
 
 @interface NSObject (ChannelPaneOwner)
 - (void)channelPane:(ChannelPane *)pane didSubmitText:(NSString *)text forChannel:(NSString *)channelId;
+/* The person is typing (called for every change to a non-empty input; the owner decides how often to tell Discord). */
+- (void)channelPane:(ChannelPane *)pane userTypingInChannel:(NSString *)channelId;
 @end
 
 @interface NSObject (ChannelPaneImageSource)

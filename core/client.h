@@ -168,6 +168,9 @@ void kc_image_free(KImage *im);
  * in KImage.tiff / tiff_len and nothing decoded. Returns 0, or -1 if the queue is full or the address is no good. */
 int kc_fetch_file(KClient *kc, const char *url, unsigned long tag);
 
+/* Lets the channel see that we are typing (about 10 seconds' worth). Silent on failure. Returns 0 or a REST_E_* code. */
+int kc_typing(KClient *kc, const char *channel_id);
+
 /* Adds our reaction to a message, or (remove != 0) takes it back. `emoji` is the emoji itself in UTF-8, or "name:id" for a
  * custom one. Returns 0 or a REST_E_* code; a failure comes back as a KE_ERROR, success as the gateway's reaction event. */
 int kc_react(KClient *kc, const char *channel_id, const char *message_id, const char *emoji, int remove);

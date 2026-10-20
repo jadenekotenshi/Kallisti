@@ -222,6 +222,10 @@ static NSColor *author_color(const char *name)
 {
     float h = [self wantedInputHeight];
 
+    if (channel != nil && [[inputText string] length] > 0 && [owner respondsToSelector:@selector(channelPane:userTypingInChannel:)]) {
+        [owner channelPane:self userTypingInChannel:channel];
+    }
+
     if (h != inputHeight) {
         inputHeight = h;
         [self layoutSubviews];

@@ -217,6 +217,23 @@ static void test_react(void)
     rest_free(&rc);
 }
 
+static void test_typing(void)
+{
+    RestClient rc;
+    RestResult res;
+    char t[2048];
+    long id;
+
+    rest_init(&rc, "tok", 1);
+    CHECK(rest_typing(&rc, "x") == REST_E_BAD && rest_typing(&rc, NULL) == REST_E_BAD);
+    id = rest_typing(&rc, "77");
+    CHECK(id > 0 && next_req(&rc, 0, t, sizeof(t)) == id);
+    CHECK(STARTS(t, "POST /api/v10/channels/77/typing HTTP/1.1\r\n") && has(t, "Content-Length: 0\r\n"));
+    answer(&rc, 0, 204, "", "");
+    CHECK(rest_next_result(&rc, &res) && res.ok && res.kind == REST_TYPING);
+    rest_free(&rc);
+}
+
 static void test_errors(void)
 {
     RestClient rc;
@@ -565,6 +582,7 @@ int main(void)
     test_requests();
     test_create_dm();
     test_react();
+    test_typing();
     test_errors();
     test_429();
     test_buckets_and_global();

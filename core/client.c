@@ -316,6 +316,8 @@ static void handle_result(KClient *kc, const RestResult *res, KMs now)
             emit(kc, KE_ERROR, kc->state, msg);
         }
         break;
+    case REST_TYPING:                                    /* nothing to say either way */
+        break;
     case REST_REACT:
         if (!res->ok) {
             sprintf(msg, "Reaction not changed: %.200s", res->error);
@@ -1167,6 +1169,17 @@ int kc_send_message(KClient *kc, const char *channel_id, const char *text)
 int kc_fetch_file(KClient *kc, const char *url, unsigned long tag)
 {
     return kc_fetch_image_ex(kc, url, 0, 0, 1, 1, tag, KC_FETCH_FILE);
+}
+
+int kc_typing(KClient *kc, const char *channel_id)
+{
+    long id = rest_typing(&kc->rest, channel_id);
+
+    if (id <= 0) {
+        return (int)id;
+    }
+    pend_add(kc, id, REST_TYPING, channel_id);
+    return 0;
 }
 
 int kc_react(KClient *kc, const char *channel_id, const char *message_id, const char *emoji, int remove)

@@ -42,6 +42,7 @@
 
 @interface NSObject (MainControllerOwner)
 - (void)mainController:(MainController *)mc didSelectChannel:(NSString *)channelId;
+- (void)mainController:(MainController *)mc userTypingInChannel:(NSString *)channelId;
 - (void)mainController:(MainController *)mc didSubmitText:(NSString *)text forChannel:(NSString *)channelId;
 - (void)mainController:(MainController *)mc didRequestWindowForChannel:(NSString *)channelId;
 - (void)mainControllerWindowClosed:(MainController *)mc;
