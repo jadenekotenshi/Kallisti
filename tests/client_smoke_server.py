@@ -116,6 +116,12 @@ async def rest_conn(reader, writer):
                     writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
                     await writer.drain()
                     break
+                elif path == '/img/plainfetch':        # an outside site: it must get the address untouched
+                    if query != 'token=abc':
+                        await reply(writer, HTTPStatus.BAD_REQUEST, {'message': 'the address was changed: ' + query})
+                    else:
+                        writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n' % len(PNG)).encode() + PNG)
+                        await writer.drain()
                 elif path == '/img/animated.gif':      # a proxy that answers with a GIF whatever was asked
                     writer.write(('HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nContent-Length: %d\r\n\r\n' % len(GIF)).encode() + GIF)
                     await writer.drain()
@@ -185,6 +191,22 @@ async def rest_conn(reader, writer):
                                               'proxy_url': '%s://localhost:%d/img/cat.png?ex=1&hm=abc' % (SCHEME_HTTP, PORT),
                                               'width': 300, 'height': 200, 'content_type': 'image/png'}]
                         await broadcast('MESSAGE_CREATE', pm)
+                    if content == 'embed':
+                        state['next_id'] += 1
+                        em = msg(state['next_id'], 'a link', author='7', name='someone')
+                        em['embeds'] = [{'type': 'article', 'title': 'Cool Page', 'description': 'about cats',
+                                         'provider': {'name': 'Example'},
+                                         'thumbnail': {'url': 'https://example.invalid/cat.png',
+                                                       'proxy_url': '%s://localhost:%d/img/cat.png?ex=1' % (SCHEME_HTTP, PORT),
+                                                       'width': 300, 'height': 200}}]
+                        await broadcast('MESSAGE_CREATE', em)
+                    if content == 'unfurl':           # the preview arrives later, as Discord does it
+                        state['next_id'] += 1
+                        um = msg(state['next_id'], 'later http://x', author='7', name='someone')
+                        await broadcast('MESSAGE_CREATE', um)
+                        await asyncio.sleep(0.2)
+                        await broadcast('MESSAGE_UPDATE', {'id': str(state['next_id']), 'channel_id': '200', 'guild_id': '100',
+                                                           'embeds': [{'type': 'link', 'title': 'Unfurled Title'}]})
                     if content == 'dmme':
                         state['next_id'] += 1
                         await broadcast('MESSAGE_CREATE', msg(state['next_id'], 'psst, a DM', author='8', name='eight', channel='901', guild=None))

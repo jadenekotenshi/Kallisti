@@ -456,6 +456,130 @@ static void test_attachments(void)
     model_free(m);
 }
 
+static void test_embeds(void)
+{
+    Model *m = start();
+    Channel *c;
+    Message *msg;
+    ModelChange ch[16];
+    char json[3000];
+    int i;
+
+    drain(m, ch, 16);
+    /* a link preview: provider, title, description, and a thumbnail that becomes a picture */
+    strcpy(json, "{\"id\":\"10\",\"channel_id\":\"201\",\"content\":\"see this\",\"author\":{\"id\":\"1\",\"username\":\"a\"},");
+    strcat(json, "\"embeds\":[{\"type\":\"article\",\"title\":\"Cool Page\",\"description\":\"line one\\nline two\\n\\nline three\",");
+    strcat(json, "\"provider\":{\"name\":\"Example\"},\"thumbnail\":{\"proxy_url\":\"https://media.example/ext/x/pic.jpg?width=100&hm=1\",\"width\":100,\"height\":50}}]}");
+    dispatch(m, "MESSAGE_CREATE", json);
+    c = model_find_channel(m, "201");
+    msg = &c->msgs[0];
+    CHECK(strcmp(msg->text, "see this") == 0);
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "| Example\n| Cool Page\n| line one\n| line two\n| line three\n[image: pic.jpg 100x50]") == 0);
+    CHECK(msg->natt == 1 && msg->att[0].from_embed && msg->att[0].is_image && msg->att[0].is_jpeg && strcmp(msg->att[0].name, "pic.jpg") == 0 &&
+          strcmp(msg->att[0].url, "https://media.example/ext/x/pic.jpg?width=100&hm=1") == 0 && msg->att[0].width == 100);
+
+    /* a rich embed: author, fields, footer; its image beats its thumbnail */
+    strcpy(json, "{\"id\":\"11\",\"channel_id\":\"201\",\"content\":\"\",\"author\":{\"id\":\"1\",\"username\":\"a\"},");
+    strcat(json, "\"embeds\":[{\"type\":\"rich\",\"title\":\"Report\",\"author\":{\"name\":\"Bot\"},\"fields\":[{\"name\":\"CPU\",\"value\":\"9%\"},{\"name\":\"RAM\",\"value\":\"1 GB\"}],");
+    strcat(json, "\"footer\":{\"text\":\"v1.0\"},\"image\":{\"url\":\"https://cdn.example/big.png\"},\"thumbnail\":{\"url\":\"https://cdn.example/small.png\"}}]}");
+    dispatch(m, "MESSAGE_CREATE", json);
+    msg = &model_find_channel(m, "201")->msgs[1];
+    CHECK(strcmp(msg->text, "") == 0);
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "| Bot\n| Report\n| CPU: 9%\n| RAM: 1 GB\n| v1.0\n[image: big.png]") == 0);
+    CHECK(msg->natt == 1 && strcmp(msg->att[0].name, "big.png") == 0 && !msg->att[0].is_jpeg);
+
+    /* a bare image link, a video, an empty embed, and a crowd */
+    strcpy(json, "{\"id\":\"12\",\"channel_id\":\"201\",\"content\":\"https://x/y.png\",\"author\":{\"id\":\"1\",\"username\":\"a\"},");
+    strcat(json, "\"embeds\":[{\"type\":\"image\",\"url\":\"https://x/y.png\",\"thumbnail\":{\"url\":\"https://x/y.png\",\"width\":64,\"height\":64}}]}");
+    dispatch(m, "MESSAGE_CREATE", json);
+    msg = &model_find_channel(m, "201")->msgs[2];
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "[image: y.png 64x64]") == 0 && msg->natt == 1);
+    strcpy(json, "{\"id\":\"13\",\"channel_id\":\"201\",\"content\":\"\",\"author\":{\"id\":\"1\",\"username\":\"a\"},");
+    strcat(json, "\"embeds\":[{\"type\":\"gifv\",\"title\":\"Funny cat\",\"video\":{\"url\":\"https://t/c.mp4\"},\"thumbnail\":{\"url\":\"https://t/c.png\"}}]}");
+    dispatch(m, "MESSAGE_CREATE", json);
+    msg = &model_find_channel(m, "201")->msgs[3];
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "| [video] Funny cat\n[image: c.png]") == 0 && msg->natt == 1);
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"14\",\"channel_id\":\"201\",\"content\":\"\",\"embeds\":[{}],\"author\":{\"id\":\"1\",\"username\":\"a\"}}");
+    msg = &model_find_channel(m, "201")->msgs[4];
+    CHECK(strcmp(msg->text, "[embed]") == 0 && msg->embeds == NULL && msg->natt == 0);
+    strcpy(json, "{\"id\":\"15\",\"channel_id\":\"201\",\"content\":\"\",\"author\":{\"id\":\"1\",\"username\":\"a\"},\"embeds\":[");
+    for (i = 0; i < 5; i++) {
+        strcat(json, i ? ",{\"title\":\"T\"}" : "{\"title\":\"T\"}");
+    }
+    strcat(json, "]}");
+    dispatch(m, "MESSAGE_CREATE", json);
+    msg = &model_find_channel(m, "201")->msgs[5];
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "| T\n| T\n| T\n(2 more embeds)") == 0);
+    /* long text is cut on a character boundary, at four lines */
+    {
+        char desc[700];
+        size_t n = 0;
+
+        for (i = 0; i < 100; i++) {
+            memcpy(desc + n, "\xE2\x98\x83", 3);                /* 300 bytes of snowmen */
+            n += 3;
+        }
+        desc[n] = '\0';
+        sprintf(json, "{\"id\":\"16\",\"channel_id\":\"201\",\"content\":\"\",\"author\":{\"id\":\"1\",\"username\":\"a\"},"
+                      "\"embeds\":[{\"description\":\"%s\\nb\\nc\\nd\\ne\"}]}", desc);
+        dispatch(m, "MESSAGE_CREATE", json);
+        msg = &model_find_channel(m, "201")->msgs[6];
+        CHECK(msg->embeds != NULL && strstr(msg->embeds, "...") != NULL && strstr(msg->embeds, "\n| e") == NULL && strstr(msg->embeds, "| d") != NULL);
+        {
+            const char *dots = strstr(msg->embeds, "...");
+
+            CHECK(dots != NULL && ((unsigned char)dots[-1] & 0xC0) == 0x80 && ((unsigned char)dots[-3]) == 0xE2);       /* whole snowmen */
+        }
+    }
+    drain(m, ch, 16);
+
+    /* link previews arrive after the message, as a MESSAGE_UPDATE with embeds and no content */
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"20\",\"channel_id\":\"201\",\"content\":\"look http://x\",\"author\":{\"id\":\"1\",\"username\":\"a\"},"
+             "\"attachments\":[{\"filename\":\"mine.png\",\"url\":\"https://cdn.example/mine.png\",\"width\":5,\"height\":5,\"content_type\":\"image/png\"}]}");
+    drain(m, ch, 16);
+    msg = model_find_message(model_find_channel(m, "201"), "20");
+    CHECK(msg->embeds == NULL && msg->natt == 1 && !msg->att[0].from_embed);
+    strcpy(json, "{\"id\":\"20\",\"channel_id\":\"201\",\"guild_id\":\"100\",\"embeds\":[{\"type\":\"link\",\"title\":\"Page\",\"thumbnail\":{\"url\":\"https://x/p.png\"}}]}");
+    dispatch(m, "MESSAGE_UPDATE", json);
+    msg = model_find_message(model_find_channel(m, "201"), "20");
+    CHECK(strcmp(msg->text, "look http://x\n[image: mine.png 5x5]") == 0);        /* the content is untouched */
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "| Page\n[image: p.png]") == 0 && msg->natt == 2);
+    CHECK(!msg->att[0].from_embed && msg->att[1].from_embed);
+    CHECK(drain(m, ch, 16) == 1 && ch[0].type == MC_MESSAGE_CHANGED);
+    dispatch(m, "MESSAGE_UPDATE", json);                                                  /* the same again: nothing new */
+    CHECK(drain(m, ch, 16) == 0);
+    dispatch(m, "MESSAGE_UPDATE", "{\"id\":\"20\",\"channel_id\":\"201\",\"embeds\":[{\"title\":\"Other\"}]}");
+    msg = model_find_message(model_find_channel(m, "201"), "20");
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "| Other") == 0 && msg->natt == 1 && !msg->att[0].from_embed);
+    CHECK(drain(m, ch, 16) == 1);
+    dispatch(m, "MESSAGE_UPDATE", "{\"id\":\"20\",\"channel_id\":\"201\",\"embeds\":[]}");              /* the preview goes away */
+    msg = model_find_message(model_find_channel(m, "201"), "20");
+    CHECK(msg->embeds == NULL && msg->natt == 1 && drain(m, ch, 16) == 1);
+    /* an update without embeds does not touch them */
+    dispatch(m, "MESSAGE_UPDATE", "{\"id\":\"20\",\"channel_id\":\"201\",\"embeds\":[{\"title\":\"Back\"}]}");
+    drain(m, ch, 16);
+    dispatch(m, "MESSAGE_UPDATE", "{\"id\":\"20\",\"channel_id\":\"201\",\"content\":\"look http://x\",\"edited_timestamp\":\"t\"}");
+    msg = model_find_message(model_find_channel(m, "201"), "20");
+    CHECK(msg->embeds != NULL && strcmp(msg->embeds, "| Back") == 0 && msg->edited);
+    model_free(m);
+}
+
+static void test_stickers(void)
+{
+    Model *m = start();
+    Message *msg;
+
+    dispatch(m, "MESSAGE_CREATE", "{\"id\":\"10\",\"channel_id\":\"201\",\"content\":\"hi\",\"author\":{\"id\":\"1\",\"username\":\"a\"},"
+             "\"sticker_items\":[{\"id\":\"555\",\"name\":\"Wave\",\"format_type\":1},{\"id\":\"556\",\"name\":\"Dance\",\"format_type\":4},"
+             "{\"id\":\"557\",\"name\":\"Lottie\",\"format_type\":3},{\"id\":\"x\",\"name\":\"bad\",\"format_type\":1},{\"id\":\"558\",\"name\":\"Cut\",\"format_type\":2}]}");
+    msg = &model_find_channel(m, "201")->msgs[0];
+    CHECK(strcmp(msg->text, "hi\n[sticker: Wave]\n[sticker: Dance]\n[sticker: Lottie]") == 0);      /* the first three */
+    CHECK(msg->natt == 2 && strcmp(msg->att[0].url, "https://media.discordapp.net/stickers/555.png") == 0 && msg->att[0].is_image &&
+          strcmp(msg->att[0].name, "Wave") == 0 && strcmp(msg->att[1].url, "https://media.discordapp.net/stickers/556.gif") == 0 &&
+          !msg->att[0].from_embed);
+    model_free(m);
+}
+
 static void test_direct_messages(void)
 {
     Model *m = start();
@@ -596,6 +720,8 @@ int main(void)
     test_reconnect();
     test_direct_messages();
     test_attachments();
+    test_embeds();
+    test_stickers();
     test_fuzz();
     TEST_DONE("model");
 }

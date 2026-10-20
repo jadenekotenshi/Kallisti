@@ -64,6 +64,30 @@ static BOOL hasPicMessage(AppController *app)
     return [[[app mainController] messageString] rangeOfString:@"[image: cat.png 300x200]"].location != NSNotFound;
 }
 
+static BOOL hasTwoAttachmentChars(AppController *app)
+{
+    unichar obj = 0xFFFC;
+    NSString *t = [[app mainController] messageString];
+    NSRange first = [t rangeOfString:[NSString stringWithCharacters:&obj length:1]];
+
+    if (first.location == NSNotFound) return NO;
+    return [t rangeOfString:[NSString stringWithCharacters:&obj length:1] options:0
+                      range:NSMakeRange(first.location + 1, [t length] - first.location - 1)].location != NSNotFound;
+}
+
+static BOOL hasEmbedText(AppController *app)
+{
+    NSString *t = [[app mainController] messageString];
+
+    return [t rangeOfString:@"    | Example\n"].location != NSNotFound && [t rangeOfString:@"    | Cool Page\n"].location != NSNotFound &&
+           [t rangeOfString:@"    | about cats\n"].location != NSNotFound && [t rangeOfString:@"    [image: cat.png 300x200]\n"].location != NSNotFound;
+}
+
+static BOOL hasUnfurled(AppController *app)
+{
+    return [[[app mainController] messageString] rangeOfString:@"    | Unfurled Title\n"].location != NSNotFound;
+}
+
 static BOOL hasAttachmentChar(AppController *app)
 {
     unichar obj = 0xFFFC;
@@ -237,6 +261,21 @@ int main(int argc, char **argv)
         }
     }
 
+    /* embeds: the preview's lines under the message, its picture in the list, and a late preview (MESSAGE_UPDATE) */
+    [main typeText:@"embed"];
+    CHECK(waitFor(hasEmbedText, app, 10.0));
+    {
+        NSArray *items = [app imageItemsForCurrentChannel];
+        unsigned i, embedItems = 0;
+
+        for (i = 0; i < [items count]; i++) {
+            if ([((ImageItem *)[items objectAtIndex:i])->label rangeOfString:@"cat.png"].location != NSNotFound) embedItems++;
+        }
+        CHECK(embedItems == 2);                                    /* the attachment of "pic", and the embed's thumbnail */
+    }
+    [main typeText:@"unfurl"];
+    CHECK(waitFor(hasUnfurled, app, 10.0));
+
     /* the experimental inline pictures: switched on, the thumbnail is fetched and the log shows an attachment */
     {
         unichar obj = 0xFFFC;
@@ -245,8 +284,8 @@ int main(int argc, char **argv)
         CHECK([[main messageString] rangeOfString:marker].location == NSNotFound);
         [app setInlineImages:YES];
         CHECK([app inlineImagesEnabled]);
-        CHECK(waitFor(hasAttachmentChar, app, 20.0));
-        CHECK(countOf([main messageString], marker) == 1);
+        CHECK(waitFor(hasTwoAttachmentChars, app, 20.0));              /* the picture's thumbnail and the embed's */
+        CHECK(countOf([main messageString], marker) == 2);
         [app setInlineImages:NO];
         CHECK([[main messageString] rangeOfString:marker].location == NSNotFound);
     }

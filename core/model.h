@@ -29,7 +29,7 @@ enum { CH_TEXT = 0, CH_DM = 1, CH_GROUP_DM = 3, CH_CATEGORY = 4, CH_ANNOUNCEMENT
 
 #define MODEL_DM_GUILD "@me"            /* the pseudo-server that holds the direct-message channels */
 
-#define MODEL_MAX_ATTACHMENTS 4
+#define MODEL_MAX_ATTACHMENTS 6
 
 typedef struct {
     char url[480];               /* where to fetch it: Discord's media proxy URL if it sent one */
@@ -37,6 +37,7 @@ typedef struct {
     int width, height;           /* 0 if unknown */
     int is_image;                /* an image content type (or one with a size) */
     int is_jpeg;                 /* a JPEG original: ask the media proxy for a JPEG (a tenth the bytes of a PNG) */
+    int from_embed;              /* the picture of an embed (a link preview, an image link), not a file attached */
 } Attachment;
 
 typedef struct {
@@ -48,8 +49,9 @@ typedef struct {
     int edited;
     int bot;
     int type;                    /* Discord's message type: 0 default, 19 reply, others are system messages */
-    Attachment *att;             /* the first few attachments, or NULL; owned by the model */
+    Attachment *att;             /* the first few attachments and embed pictures, or NULL; owned by the model */
     int natt;
+    char *embeds;                /* the embeds as plain lines ("| title", "| text", "[image: ...]"), or NULL; owned */
 } Message;
 
 typedef struct {

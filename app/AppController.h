@@ -36,6 +36,7 @@
     NSMenuItem          *inlineItem;
     NSString          *restHost, *gatewayURL;   /* tests aim the client at a fake server; nil: Discord */
     int                restPort, restTLS;
+    int                resizeAnyHost;      /* tests: the fake server stands in for Discord's media proxy */
 }
 - (void)buildMenu;
 /* For tests: talk to a fake server instead of Discord. */

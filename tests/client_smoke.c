@@ -190,7 +190,8 @@ static void configure(KClient *kc, int port, int tls, const TrustStore *ts)
     kc->rest_tls = tls;
     sprintf(kc->gateway_url, "%s://localhost:%d/?v=10&encoding=json", tls ? "wss" : "ws", port + 1);
     kc->trust = ts;
-    kc->proxy_env = 0;                                   /* whatever the shell exports must not leak into the tests */
+    kc->proxy_env = 0;
+    kc->resize_any_host = 1;                             /* the fake server stands in for Discord's media proxy */                                   /* whatever the shell exports must not leak into the tests */
 }
 
 static void test_good_session(int port, int tls, const TrustStore *ts)
@@ -323,6 +324,15 @@ static void test_good_session(int port, int tls, const TrustStore *ts)
         CHECK(kc_fetch_image_boxed(&kc, u, 300, 200, 150, 100, 8) == 0);
         CHECK(run_until(&kc, &seen, c_images1, 15000));
         CHECK(seen.image_ok[0] && seen.image_tag[0] == 8 && seen.image_w[0] == 150 && seen.image_h[0] == 100);   /* shrunk here */
+        /* another site's picture is fetched exactly as addressed: no format or size parameters are added */
+        kc.resize_any_host = 0;
+        seen.nimages = 0;
+        sprintf(u, "%s/plainfetch?token=abc", base);
+        CHECK(kc_fetch_image(&kc, u, 2000, 1000) == 0);
+        CHECK(run_until(&kc, &seen, c_images1, 15000));
+        CHECK(seen.image_ok[0] && seen.image_w[0] == 300);
+        kc.resize_any_host = 1;
+
         /* a GIF (the first frame of an animation) comes back like any other picture */
         seen.nimages = 0;
         sprintf(u, "%s/animated.gif", base);

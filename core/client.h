@@ -71,6 +71,8 @@ typedef struct {
     char proxy_spec[256];        /* "[http://|socks5://][user:pass@]host[:port]", or "" for none (see netconn.h) */
     char proxy_user[128];        /* a login kept apart from the address (wins over one in it) */
     char proxy_pass[128];
+    int resize_any_host;         /* add format/size parameters to picture addresses on every host, not only Discord's
+                                  * (tests, whose fake server is on localhost, set this) */
     int proxy_env;               /* with no proxy_spec, use https_proxy / all_proxy / http_proxy (default 1) */
     NetProxy proxy;              /* the parsed setting, once started */
     int proxy_set;

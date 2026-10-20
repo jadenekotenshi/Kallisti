@@ -76,7 +76,16 @@ before any OPENSTEP code:
      and nothing is linked in. `core/png.c` reads every PNG type with interlacing and transparency. `core/jpeg.c`
      reads baseline, extended and progressive Huffman JPEGs (any subsampling, restart intervals, grey) and uses
      libjpeg's published integer IDCT, upsampling and colour arithmetic, so its output is bit-for-bit libjpeg's:
-     the 44 test pictures in `tests/jpg` (made by libjpeg through Pillow) must match libjpeg's own decode exactly. *Show Images Inline (Experimental)* draws thumbnails inside the log
+     the 44 test pictures in `tests/jpg` (made by libjpeg through Pillow) must match libjpeg's own decode exactly.
+     `core/gif.c` reads GIF87a/89a (palettes, interlacing, transparency, any LZW stream) and shows an animation's
+     first frame; whatever the proxy sends back is recognised by its first bytes, so a GIF where a PNG was asked for
+     is not a problem. Another site's picture (a link preview from outside Discord) is fetched exactly as addressed.
+   - Embeds and stickers: a link preview shows under its message as grey lines (`| Example`, `| Title`, `| first
+     lines of the description`, fields, footer, and `[image: pic.jpg 100x50]`); a bare image link or a GIF from
+     Tenor shows just its picture or poster frame. The preview's picture is in *Images in This Channel* and, with the
+     experimental switch, inline. Previews that Discord adds a moment after the message (MESSAGE_UPDATE) appear when
+     they arrive. Stickers show as `[sticker: Wave]` and their PNG/GIF is in the picture list (Lottie stickers
+     cannot be shown). Custom emoji are still just `:name:`. *Show Images Inline (Experimental)* draws thumbnails inside the log
      with `NSTextAttachment`, which is untested on OPENSTEP; leave it off if the log misbehaves.
 
 **v0.1 scope:** connect, list servers and their text channels, read live messages, send messages -- plus the

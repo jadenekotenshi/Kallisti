@@ -116,6 +116,14 @@ static NSColor *author_color(const char *name)
     [self appendString:S(m->text) color:[NSColor blackColor] font:normalFont];
     if (m->edited) [self appendString:@" (edited)" color:[NSColor darkGrayColor] font:normalFont];
     [self appendString:@"\n" color:[NSColor blackColor] font:normalFont];
+    if (m->embeds != NULL && m->embeds[0] != '\0') {          /* link previews and other embeds, one grey line each */
+        NSArray *lines = [S(m->embeds) componentsSeparatedByString:@"\n"];
+        unsigned li;
+
+        for (li = 0; li < [lines count]; li++) {
+            [self appendString:[NSString stringWithFormat:@"    %@\n", [lines objectAtIndex:li]] color:[NSColor darkGrayColor] font:normalFont];
+        }
+    }
     if (inlineImages && imageSource != nil) {
         int i;
 

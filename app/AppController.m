@@ -201,6 +201,7 @@ static KMs app_now_ms(void)
     [gatewayURL release]; gatewayURL = [url retain];
     restPort = port;
     restTLS = tls ? 1 : 0;
+    resizeAnyHost = 1;
 }
 
 - (void)signInWithToken:(NSString *)token isBot:(BOOL)isBot
@@ -355,6 +356,7 @@ static KMs app_now_ms(void)
         strncpy(kc->rest_host, [restHost cString], sizeof(kc->rest_host) - 1);
         kc->rest_port = restPort;
         kc->rest_tls = restTLS;
+        kc->resize_any_host = resizeAnyHost;
         if (gatewayURL) strncpy(kc->gateway_url, [gatewayURL cString], sizeof(kc->gateway_url) - 1);
     }
     [mainController release];                           /* a new session has a new model */

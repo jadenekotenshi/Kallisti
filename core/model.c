@@ -121,6 +121,8 @@ static void message_clear(Message *m)
 {
     free(m->text);
     free(m->att);
+    free(m->embeds);
+    m->embeds = NULL;
     m->text = NULL;
     m->att = NULL;
     m->natt = 0;
@@ -494,7 +496,7 @@ static char *render_text(Model *m, const JNode *msg)
     const char *content = json_get_str(msg, "content", "");
     const JNode *mentions = json_get(msg, "mentions"), *a;
     const char *p = content;
-    int kind, i, natt = 0, nemb, nstk;
+    int kind, i, natt = 0, nstk;
     char id[32], name[80];
     size_t n;
 
@@ -555,13 +557,29 @@ static char *render_text(Model *m, const JNode *msg)
             }
         }
     }
+    {
+        const JNode *stickers = json_get(msg, "sticker_items"), *st;
+        int shown = 0;
+
+        for (st = stickers != NULL && stickers->type == J_ARR ? stickers->first : NULL; st != NULL && shown < 3; st = st->next, shown++) {
+            const char *nm = json_get_str(st, "name", "");
+
+            if (out.len > 0) {
+                str_adds(&out, "\n");
+            }
+            if (nm[0] != '\0') {
+                str_adds(&out, "[sticker: ");
+                str_adds(&out, nm);
+                str_adds(&out, "]");
+            } else {
+                str_adds(&out, "[sticker]");
+            }
+        }
+    }
     if (out.len == 0) {
-        nemb = json_get(msg, "embeds") != NULL ? json_get(msg, "embeds")->count : 0;
-        nstk = json_get(msg, "sticker_items") != NULL ? json_get(msg, "sticker_items")->count : 0;
+        nstk = 0;
         i = int_of(msg, "type", 0);
-        if (nemb > 0) {
-            str_adds(&out, "[embed]");
-        } else if (nstk > 0) {
+        if (nstk > 0) {
             str_adds(&out, "[sticker]");
         } else if (i != 0 && i != 19 && i != 20) {
             str_adds(&out, "[system message]");
@@ -731,6 +749,248 @@ static int ends_with_ci(const char *s, const char *suffix)
     return 1;
 }
 
+/* ---------------------------------------------------------------- embeds */
+
+#define MAX_EMBEDS_SHOWN 3
+
+/* copies at most `max` bytes of text onto the string, cut on a character boundary, "..." if cut */
+static void add_cut(Str *s, const char *text, size_t max)
+{
+    size_t n = strlen(text);
+
+    if (n > max) {
+        n = max;
+        while (n > 0 && ((unsigned char)text[n] & 0xC0) == 0x80) {
+            n--;
+        }
+        str_add(s, text, n);
+        str_adds(s, "...");
+    } else {
+        str_add(s, text, n);
+    }
+}
+
+/* one line "| text" for each line of `text` (at most `lines` of them, each cut at `width` bytes) */
+static void add_quoted(Str *s, const char *text, int lines, size_t width)
+{
+    const char *p = text;
+
+    while (*p != '\0' && lines-- > 0) {
+        size_t n = strcspn(p, "\n");
+        char *line = (char *)malloc(n + 1);
+
+        if (line == NULL) {
+            return;
+        }
+        memcpy(line, p, n);
+        line[n] = '\0';
+        if (n > 0 && line[n - 1] == '\r') {
+            line[n - 1] = '\0';
+        }
+        if (line[0] != '\0') {
+            str_adds(s, "| ");
+            add_cut(s, line, width);
+            str_adds(s, "\n");
+        }
+        free(line);
+        p += n;
+        if (*p == '\n') {
+            p++;
+        }
+    }
+}
+
+/* The picture of an embed (its image, else its thumbnail), as an Attachment; 0 if it has none. */
+static int embed_picture(const JNode *e, Attachment *a)
+{
+    const JNode *pic = json_get(e, "image");
+    const char *url, *slash, *q;
+    size_t n;
+
+    if (pic == NULL || pic->type != J_OBJ) {
+        pic = json_get(e, "thumbnail");
+    }
+    if (pic == NULL || pic->type != J_OBJ) {
+        return 0;
+    }
+    url = json_get_str(pic, "proxy_url", NULL);
+    if (url == NULL || url[0] == '\0') {
+        url = json_get_str(pic, "url", "");
+    }
+    if (url[0] == '\0' || strlen(url) >= sizeof(a->url)) {
+        return 0;
+    }
+    memset(a, 0, sizeof(*a));
+    strcpy(a->url, url);
+    q = strchr(url, '?');
+    n = q ? (size_t)(q - url) : strlen(url);
+    slash = url + n;
+    while (slash > url && slash[-1] != '/') {
+        slash--;
+    }
+    if ((size_t)(url + n - slash) > 0 && (size_t)(url + n - slash) < sizeof(a->name)) {
+        memcpy(a->name, slash, (size_t)(url + n - slash));
+        a->name[url + n - slash] = '\0';
+    } else {
+        copy_utf8(a->name, sizeof(a->name), json_get_str(e, "title", "picture"));
+    }
+    a->width = int_of(pic, "width", 0);
+    a->height = int_of(pic, "height", 0);
+    a->is_image = 1;
+    a->is_jpeg = ends_with_ci(a->name, ".jpg") || ends_with_ci(a->name, ".jpeg");
+    a->from_embed = 1;
+    return 1;
+}
+
+/* The embeds as plain lines, or NULL if there is nothing to show. */
+static char *render_embeds(const JNode *embeds)
+{
+    Str out;
+    const JNode *e, *f;
+    int shown = 0, total = 0;
+
+    memset(&out, 0, sizeof(out));
+    if (embeds == NULL || embeds->type != J_ARR) {
+        return NULL;
+    }
+    for (e = embeds->first; e != NULL; e = e->next) {
+        const char *type = json_get_str(e, "type", "rich");
+        const char *title = json_get_str(e, "title", NULL), *desc = json_get_str(e, "description", NULL);
+        const char *who = json_get_str(json_get(e, "author"), "name", NULL);
+        const char *footer = json_get_str(json_get(e, "footer"), "text", NULL);
+        const JNode *fields = json_get(e, "fields");
+        Attachment pic;
+        int nf = 0;
+
+        total++;
+        if (shown >= MAX_EMBEDS_SHOWN) {
+            continue;
+        }
+        if (who == NULL) {
+            who = json_get_str(json_get(e, "provider"), "name", NULL);
+        }
+        if (strcmp(type, "image") != 0) {                  /* a bare image link says nothing but its picture */
+            if (strcmp(type, "video") == 0 || strcmp(type, "gifv") == 0) {
+                str_adds(&out, "| [video]");
+                if (title != NULL && title[0] != '\0') {
+                    str_adds(&out, " ");
+                    add_cut(&out, title, 120);
+                }
+                str_adds(&out, "\n");
+            } else {
+                if (who != NULL && who[0] != '\0' && (title == NULL || strcmp(who, title) != 0)) {
+                    str_adds(&out, "| ");
+                    add_cut(&out, who, 80);
+                    str_adds(&out, "\n");
+                }
+                if (title != NULL && title[0] != '\0') {
+                    str_adds(&out, "| ");
+                    add_cut(&out, title, 160);
+                    str_adds(&out, "\n");
+                }
+            }
+            if (desc != NULL) {
+                add_quoted(&out, desc, 4, 200);
+            }
+            for (f = fields != NULL && fields->type == J_ARR ? fields->first : NULL; f != NULL && nf < 5; f = f->next, nf++) {
+                const char *fname = json_get_str(f, "name", ""), *fval = json_get_str(f, "value", "");
+
+                str_adds(&out, "| ");
+                add_cut(&out, fname, 60);
+                str_adds(&out, ": ");
+                add_cut(&out, fval, 120);
+                str_adds(&out, "\n");
+            }
+            if (footer != NULL && footer[0] != '\0') {
+                str_adds(&out, "| ");
+                add_cut(&out, footer, 120);
+                str_adds(&out, "\n");
+            }
+        }
+        if (embed_picture(e, &pic)) {
+            char dims[48] = "";
+
+            if (pic.width > 0 && pic.height > 0) {
+                sprintf(dims, " %dx%d", pic.width, pic.height);
+            }
+            str_adds(&out, "[image: ");
+            str_adds(&out, pic.name);
+            str_adds(&out, dims);
+            str_adds(&out, "]\n");
+        }
+        shown++;
+    }
+    if (total > MAX_EMBEDS_SHOWN) {
+        char more[48];
+
+        sprintf(more, "(%d more embeds)\n", total - MAX_EMBEDS_SHOWN);
+        str_adds(&out, more);
+    }
+    if (out.failed || out.len == 0) {
+        free(out.buf);
+        return NULL;
+    }
+    if (out.buf[out.len - 1] == '\n') {
+        out.buf[--out.len] = '\0';
+    }
+    return out.buf;
+}
+
+/* Stickers (PNG, animated PNG and GIF ones; Lottie cannot be shown) as pictures after the attachments. */
+static void append_sticker_images(Message *msg, const JNode *json)
+{
+    const JNode *list = json_get(json, "sticker_items"), *st;
+    int shown = 0;
+
+    if (list == NULL || list->type != J_ARR) {
+        return;
+    }
+    for (st = list->first; st != NULL && shown < 3; st = st->next, shown++) {
+        const char *id = id_of(st, "id");
+        int fmt = int_of(st, "format_type", 0);
+        Attachment *a;
+
+        if (id == NULL || (fmt != 1 && fmt != 2 && fmt != 4) || msg->natt >= MODEL_MAX_ATTACHMENTS) {
+            continue;
+        }
+        if (msg->att == NULL) {
+            msg->att = (Attachment *)calloc(MODEL_MAX_ATTACHMENTS, sizeof(Attachment));
+            if (msg->att == NULL) {
+                return;
+            }
+        }
+        a = &msg->att[msg->natt++];
+        memset(a, 0, sizeof(*a));
+        sprintf(a->url, "https://media.discordapp.net/stickers/%s.%s", id, fmt == 4 ? "gif" : "png");
+        copy_utf8(a->name, sizeof(a->name), json_get_str(st, "name", "sticker"));
+        a->is_image = 1;
+    }
+}
+
+/* Adds the embeds' pictures after the attachments already in msg->att (up to the limit). */
+static void append_embed_images(Message *msg, const JNode *embeds)
+{
+    const JNode *e;
+    Attachment pic;
+    int shown = 0;
+
+    if (embeds == NULL || embeds->type != J_ARR) {
+        return;
+    }
+    for (e = embeds->first; e != NULL && shown < MAX_EMBEDS_SHOWN; e = e->next, shown++) {
+        if (msg->natt >= MODEL_MAX_ATTACHMENTS || !embed_picture(e, &pic)) {
+            continue;
+        }
+        if (msg->att == NULL) {
+            msg->att = (Attachment *)calloc(MODEL_MAX_ATTACHMENTS, sizeof(Attachment));
+            if (msg->att == NULL) {
+                return;
+            }
+        }
+        msg->att[msg->natt++] = pic;
+    }
+}
+
 /* Keeps the first few attachments' addresses, names and sizes, so an image can be fetched later. */
 static void parse_attachments(Message *msg, const JNode *json)
 {
@@ -819,6 +1079,22 @@ void model_ingest_message(Model *m, const JNode *msg, int from_gateway)
     tmp.type = int_of(msg, "type", 0);
     tmp.text = text;
     parse_attachments(&tmp, msg);
+    append_sticker_images(&tmp, msg);
+    {
+        const JNode *emb = json_get(msg, "embeds");
+
+        tmp.embeds = render_embeds(emb);
+        append_embed_images(&tmp, emb);
+        if (tmp.text[0] == '\0' && tmp.embeds == NULL && emb != NULL && emb->type == J_ARR && emb->count > 0) {
+            char *fallback = (char *)malloc(8);
+
+            if (fallback != NULL) {
+                strcpy(fallback, "[embed]");
+                free(tmp.text);
+                tmp.text = fallback;
+            }
+        }
+    }
 
     ex = model_find_message(c, id);
     if (ex != NULL) {                    /* already known (our own POST, then the gateway's copy): refresh quietly */
@@ -870,7 +1146,7 @@ static void message_update(Model *m, const JNode *d)
     Channel *c;
     Message *msg;
     char *text;
-    int edited;
+    int edited, embeds_changed = 0;
 
     if (id == NULL || cid == NULL || (c = model_find_channel(m, cid)) == NULL ||
         (msg = model_find_message(c, id)) == NULL) {
@@ -880,6 +1156,26 @@ static void message_update(Model *m, const JNode *d)
     if (json_get(d, "edited_timestamp") != NULL) {
         edited = json_str(json_get(d, "edited_timestamp")) != NULL;
     }
+    if (json_get(d, "embeds") != NULL) {                 /* a link preview arriving, or changing */
+        const JNode *emb = json_get(d, "embeds");
+        char *etext = render_embeds(emb);
+        int i, kept = 0;
+
+        embeds_changed = (etext == NULL) != (msg->embeds == NULL) || (etext != NULL && strcmp(etext, msg->embeds) != 0);
+        free(msg->embeds);
+        msg->embeds = etext;
+        for (i = 0; i < msg->natt; i++) {                /* the files stay; the embeds' pictures are replaced */
+            if (!msg->att[i].from_embed) {
+                msg->att[kept++] = msg->att[i];
+            }
+        }
+        msg->natt = kept;
+        append_embed_images(msg, emb);
+        if (msg->natt == 0) {
+            free(msg->att);
+            msg->att = NULL;
+        }
+    }
     if (json_get(d, "content") != NULL) {
         text = render_text(m, d);
         if (text == NULL) {
@@ -887,11 +1183,14 @@ static void message_update(Model *m, const JNode *d)
         }
         if (strcmp(text, msg->text) == 0 && edited == msg->edited) {
             free(text);
-            return;                      /* an embed unfurling, nothing to show */
+            if (embeds_changed) {
+                push_change(m, MC_MESSAGE_CHANGED, c->guild_id, c->id, id);
+            }
+            return;
         }
         free(msg->text);
         msg->text = text;
-    } else if (edited == msg->edited) {
+    } else if (edited == msg->edited && !embeds_changed) {
         return;
     }
     msg->edited = edited;

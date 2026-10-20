@@ -676,12 +676,44 @@ static void gateway_pump(KClient *kc, KMs now)
 
 /* ---------------------------------------------------------------- picture downloads */
 
+static int host_ends_with(const char *host, const char *suffix)
+{
+    size_t n = strlen(host), m = strlen(suffix);
+
+    return n >= m && strcmp(host + n - m, suffix) == 0 && (n == m || host[n - m - 1] == '.');
+}
+
+/* Only Discord's own hosts understand the media proxy's format and size parameters; another site's picture is
+ * fetched exactly as it is addressed. */
+static int takes_resize_params(const KClient *kc, const char *url)
+{
+    HttpUrl u;
+
+    if (kc->resize_any_host) {
+        return 1;
+    }
+    if (http_parse_url(url, &u) != 0) {
+        return 0;
+    }
+    return host_ends_with(u.host, "discordapp.net") || host_ends_with(u.host, "discordapp.com") ||
+           host_ends_with(u.host, "discord.com") || host_ends_with(u.host, "discord.gg");
+}
+
 /* The address to request: the attachment's own, plus the media proxy's format and size parameters. */
-static void fetch_url(char *out, size_t cap, const char *url, unsigned long w, unsigned long h, unsigned long max_w,
-                      unsigned long max_h, int flags)
+static void fetch_url(const KClient *kc, char *out, size_t cap, const char *url, unsigned long w, unsigned long h,
+                      unsigned long max_w, unsigned long max_h, int flags)
 {
     char extra[96];
     unsigned long nw = w, nh = h;
+
+    if (!takes_resize_params(kc, url)) {
+        if (strlen(url) >= cap) {
+            out[0] = '\0';
+        } else {
+            strcpy(out, url);
+        }
+        return;
+    }
 
     if (w > 0 && h > 0 && (w > max_w || h > max_h)) {
         /* shrink to fit, keeping the proportions (the proxy treats width and height as a box) */
@@ -893,7 +925,7 @@ static void fetch_pump(KClient *kc, KMs now)
         kc->fmax_h = kc->fq[0].max_h;
         kc->ftag = kc->fq[0].tag;
         kc->fflags = kc->fq[0].flags;
-        fetch_url(kc->furl, sizeof(kc->furl), kc->fq[0].url, kc->fq[0].w, kc->fq[0].h, kc->fmax_w, kc->fmax_h, kc->fflags);
+        fetch_url(kc, kc->furl, sizeof(kc->furl), kc->fq[0].url, kc->fq[0].w, kc->fq[0].h, kc->fmax_w, kc->fmax_h, kc->fflags);
         for (i = 1; i < kc->nfq; i++) {
             kc->fq[i - 1] = kc->fq[i];
         }
@@ -1014,7 +1046,7 @@ static void fetch_pump(KClient *kc, KMs now)
                 /* the proxy would not make a JPEG (it sent something else): ask for a PNG instead */
                 kc->fretried = 1;
                 kc->fflags = 0;
-                fetch_url(kc->furl, sizeof(kc->furl), kc->forig, kc->fq_w_saved, kc->fq_h_saved, kc->fmax_w, kc->fmax_h, 0);
+                fetch_url(kc, kc->furl, sizeof(kc->furl), kc->forig, kc->fq_w_saved, kc->fq_h_saved, kc->fmax_w, kc->fmax_h, 0);
                 http_resp_free(&kc->fresp);
                 kc->fphase = 1;
                 if (!keep) {
