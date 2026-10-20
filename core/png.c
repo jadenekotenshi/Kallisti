@@ -40,8 +40,13 @@ static int unfilter(unsigned char *p, unsigned long rows, size_t rb, size_t bpp)
 {
     unsigned long y;
     size_t i;
-    unsigned char *cur, *prev = NULL;
+    unsigned char *cur, *prev;
+    unsigned char *zero = (unsigned char *)calloc(rb > 0 ? rb : 1, 1);      /* the "row above" the first one */
 
+    if (zero == NULL) {
+        return -1;
+    }
+    prev = zero;
     for (y = 0; y < rows; y++) {
         int f = p[0];
 
@@ -53,28 +58,24 @@ static int unfilter(unsigned char *p, unsigned long rows, size_t rb, size_t bpp)
             for (i = bpp; i < rb; i++) cur[i] = (unsigned char)(cur[i] + cur[i - bpp]);
             break;
         case 2:
-            if (prev) for (i = 0; i < rb; i++) cur[i] = (unsigned char)(cur[i] + prev[i]);
+            for (i = 0; i < rb; i++) cur[i] = (unsigned char)(cur[i] + prev[i]);
             break;
         case 3:
-            for (i = 0; i < rb; i++) {
-                int left = i >= bpp ? cur[i - bpp] : 0, up = prev ? prev[i] : 0;
-
-                cur[i] = (unsigned char)(cur[i] + ((left + up) >> 1));
-            }
+            for (i = 0; i < bpp && i < rb; i++) cur[i] = (unsigned char)(cur[i] + (prev[i] >> 1));
+            for (; i < rb; i++) cur[i] = (unsigned char)(cur[i] + ((cur[i - bpp] + prev[i]) >> 1));
             break;
         case 4:
-            for (i = 0; i < rb; i++) {
-                int left = i >= bpp ? cur[i - bpp] : 0, up = prev ? prev[i] : 0, ul = (prev && i >= bpp) ? prev[i - bpp] : 0;
-
-                cur[i] = (unsigned char)(cur[i] + paeth(left, up, ul));
-            }
+            for (i = 0; i < bpp && i < rb; i++) cur[i] = (unsigned char)(cur[i] + prev[i]);        /* paeth(0, up, 0) = up */
+            for (; i < rb; i++) cur[i] = (unsigned char)(cur[i] + paeth(cur[i - bpp], prev[i], prev[i - bpp]));
             break;
         default:
+            free(zero);
             return -1;
         }
         prev = cur;
         p += 1 + rb;
     }
+    free(zero);
     return 0;
 }
 
@@ -141,6 +142,50 @@ static int pixel(const Hdr *h, const unsigned char *row, unsigned long x, unsign
         out[1] = scale8(h, sample(h, row, x, 1));
         out[2] = scale8(h, sample(h, row, x, 2));
         out[3] = scale8(h, sample(h, row, x, 3));
+        return 0;
+    }
+}
+
+/* A whole 8-bit scanline to RGBA at once: the common case, without the per-pixel switches of pixel(). Returns -1 for
+ * a palette index out of range. */
+static int convert_row8(const Hdr *h, const unsigned char *row, unsigned long w, unsigned char *out)
+{
+    unsigned long x;
+
+    switch (h->ctype) {
+    case 6:
+        memcpy(out, row, (size_t)(w * 4));
+        return 0;
+    case 2:
+        for (x = 0; x < w; x++, row += 3, out += 4) {
+            out[0] = row[0];
+            out[1] = row[1];
+            out[2] = row[2];
+            out[3] = (h->has_key && row[0] == h->key[0] && row[1] == h->key[1] && row[2] == h->key[2]) ? 0 : 255;
+        }
+        return 0;
+    case 0:
+        for (x = 0; x < w; x++, row++, out += 4) {
+            out[0] = out[1] = out[2] = row[0];
+            out[3] = (h->has_key && row[0] == h->key[0]) ? 0 : 255;
+        }
+        return 0;
+    case 4:
+        for (x = 0; x < w; x++, row += 2, out += 4) {
+            out[0] = out[1] = out[2] = row[0];
+            out[3] = row[1];
+        }
+        return 0;
+    default:
+        for (x = 0; x < w; x++, out += 4) {
+            unsigned v = row[x];
+
+            if ((int)v >= h->npal) return -1;
+            out[0] = h->pal[v][0];
+            out[1] = h->pal[v][1];
+            out[2] = h->pal[v][2];
+            out[3] = h->pal_alpha[v];
+        }
         return 0;
     }
 }
@@ -319,6 +364,16 @@ int png_decode(const unsigned char *data, size_t len, PngImage *img, const char 
             if (unfilter(p, ph, rb, bpp) != 0) {
                 *err = "bad PNG filter";
                 goto done;
+            }
+            if (!h.interlace && h.depth == 8) {
+                for (py = 0; py < ph; py++) {
+                    if (convert_row8(&h, p + py * (1 + rb) + 1, pw, img->rgba + py * h.w * 4) != 0) {
+                        *err = "a palette index is out of range";
+                        goto done;
+                    }
+                }
+                p += ph * (1 + rb);
+                continue;
             }
             for (py = 0; py < ph; py++) {
                 const unsigned char *row = p + py * (1 + rb) + 1;

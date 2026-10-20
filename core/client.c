@@ -3,12 +3,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include "client.h"
+#include <sys/time.h>
 #include "rng.h"
 
 enum { R_IDLE = 0, R_CONNECTING, R_SENT };
 enum { G_NONE = 0, G_WAIT, G_CONNECTING, G_UPGRADING, G_OPEN };
 
 #define UPGRADE_TIMEOUT_MS 20000L
+
+/* wall-clock milliseconds, for timing a picture's download and decoding (differences only; wraps harmlessly) */
+static unsigned long wall_ms(void)
+{
+    struct timeval tv;
+
+    gettimeofday(&tv, NULL);
+    return (unsigned long)tv.tv_sec * 1000UL + (unsigned long)tv.tv_usec / 1000UL;
+}
 
 static void copy_str(char *dst, size_t cap, const char *src)
 {
@@ -692,6 +702,10 @@ static void fetch_result(KClient *kc, int ok, const char *error, unsigned char *
     copy_str(r->url, sizeof(r->url), kc->forig);
     r->ok = ok;
     r->tag = kc->ftag;
+    r->bytes = kc->fbytes;
+    r->ms_connect = kc->fwall_open - kc->fwall_start;
+    r->ms_download = kc->fwall_done - kc->fwall_open;
+    r->ms_decode = kc->fms_decode;
     copy_str(r->error, sizeof(r->error), error);
     r->tiff = tiff;
     r->tiff_len = tiff_len;
@@ -757,6 +771,9 @@ static void fetch_pump(KClient *kc, KMs now)
         kc->nfq--;
         kc->fredirects = 0;
         kc->fstarted = now;
+        kc->fwall_start = kc->fwall_open = kc->fwall_done = wall_ms();
+        kc->fbytes = 0;
+        kc->fms_decode = 0;
         if (kc->furl[0] == '\0') {
             fetch_failed(kc, "address too long");
         } else {
@@ -786,6 +803,7 @@ static void fetch_pump(KClient *kc, KMs now)
                 return;
             }
             http_resp_init(&kc->fresp, (size_t)KC_IMAGE_BODY_MAX, 0);
+            kc->fwall_open = wall_ms();
             kc->fphase = 2;
         } else if (kc->fconn.state == NET_FAILED || kc->fconn.state == NET_CLOSED) {
             char m[240];
@@ -854,7 +872,15 @@ static void fetch_pump(KClient *kc, KMs now)
             unsigned long w = 0, h = 0;
             const char *err = "ok";
 
-            if (img_png_to_tiff(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, &tiff, &tl, &w, &h, &err) == 0) {
+            unsigned long t0;
+            int dec;
+
+            kc->fwall_done = wall_ms();
+            kc->fbytes = (unsigned long)kc->fresp.body_len;
+            t0 = wall_ms();
+            dec = img_png_to_tiff(kc->fresp.body, kc->fresp.body_len, kc->fmax_w, kc->fmax_h, &tiff, &tl, &w, &h, &err);
+            kc->fms_decode = wall_ms() - t0;
+            if (dec == 0) {
                 fetch_result(kc, 1, "", tiff, tl, w, h);
             } else {
                 fetch_failed(kc, err);

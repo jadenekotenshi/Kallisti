@@ -92,6 +92,43 @@ int img_png_to_tiff(const unsigned char *png, size_t n, unsigned long max_w, uns
     if (max_h > 0 && im.height > max_h && (im.height + max_h - 1) / max_h > k) {
         k = (im.height + max_h - 1) / max_h;
     }
+    if (k == 1) {                                         /* no shrinking: lay each pixel over white directly */
+        size_t total = (size_t)(im.width * im.height), t;
+
+        rgb = (unsigned char *)malloc(total * 3);
+        if (rgb == NULL) {
+            free(im.rgba);
+            *err = "out of memory";
+            return -1;
+        }
+        for (t = 0; t < total; t++) {
+            const unsigned char *s = im.rgba + t * 4;
+            unsigned long a = s[3];
+
+            if (a == 255) {
+                rgb[t * 3] = s[0];
+                rgb[t * 3 + 1] = s[1];
+                rgb[t * 3 + 2] = s[2];
+            } else {
+                rgb[t * 3] = (unsigned char)((s[0] * a + 255UL * (255UL - a)) / 255UL);
+                rgb[t * 3 + 1] = (unsigned char)((s[1] * a + 255UL * (255UL - a)) / 255UL);
+                rgb[t * 3 + 2] = (unsigned char)((s[2] * a + 255UL * (255UL - a)) / 255UL);
+            }
+        }
+        nw = im.width;
+        nh = im.height;
+        free(im.rgba);
+        *tiff = tiff_encode_rgb(rgb, nw, nh, tiff_len);
+        free(rgb);
+        if (*tiff == NULL) {
+            *err = "out of memory";
+            return -1;
+        }
+        *w = nw;
+        *h = nh;
+        *err = "ok";
+        return 0;
+    }
     nw = (im.width + k - 1) / k;
     nh = (im.height + k - 1) / k;
     rgb = (unsigned char *)malloc((size_t)(nw * nh * 3UL));

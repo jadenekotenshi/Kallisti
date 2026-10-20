@@ -54,6 +54,8 @@ typedef struct {
     unsigned char *tiff;         /* malloc'd; the receiver frees it */
     size_t tiff_len;
     unsigned long width, height;
+    unsigned long ms_connect, ms_download, ms_decode;   /* where the time went: TLS setup, transfer, PNG -> TIFF */
+    unsigned long bytes;         /* size of the PNG that was downloaded */
 } KImage;
 
 typedef struct {
@@ -104,6 +106,7 @@ typedef struct {
     unsigned long fmax_w, fmax_h, ftag;
     int fredirects;
     KMs fstarted;
+    unsigned long fwall_start, fwall_open, fwall_done, fbytes, fms_decode;
 
     KEvent evs[16];
     int nevs;

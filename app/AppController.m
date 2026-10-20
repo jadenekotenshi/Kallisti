@@ -402,7 +402,11 @@ static KMs app_now_ms(void)
             if (w) {
                 [imageWindows addObject:w];
                 [w show];
-                [mainController setStatus:@"Picture loaded"];
+                [mainController setStatus:[NSString stringWithFormat:@"Picture loaded: %u KB, connect %u ms, download %u ms, decode %u ms",
+                                           (unsigned)(img.bytes / 1024UL), (unsigned)img.ms_connect, (unsigned)img.ms_download,
+                                           (unsigned)img.ms_decode]];
+                SSTrace("picture %s: %u bytes, connect %u ms, download %u ms, decode %u ms", SSCS(name), (unsigned)img.bytes,
+                        (unsigned)img.ms_connect, (unsigned)img.ms_download, (unsigned)img.ms_decode);
             } else {
                 [mainController appendNotice:@"The picture arrived but AppKit could not read it."];
             }

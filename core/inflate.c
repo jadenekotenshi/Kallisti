@@ -18,9 +18,12 @@ typedef struct {
     const char *err;
 } Inf;
 
+#define FASTBITS 10
+
 typedef struct {
     short count[MAXBITS + 1];
     short symbol[FIXLCODES];
+    unsigned short fast[1 << FASTBITS];      /* symbol | (length << 9) for codes of up to FASTBITS bits, else 0 */
 } Huff;
 
 static int bits(Inf *s, int need)
@@ -43,6 +46,21 @@ static int bits(Inf *s, int need)
 static int decode(Inf *s, const Huff *h)
 {
     int len, code = 0, first = 0, count, index = 0, b;
+    unsigned long v;
+    unsigned e;
+
+    /* the common case: a code of up to FASTBITS bits, found by looking at the next FASTBITS bits at once */
+    while (s->bitcnt < FASTBITS && s->pos < s->n) {
+        s->bitbuf |= (unsigned long)s->in[s->pos++] << s->bitcnt;
+        s->bitcnt += 8;
+    }
+    v = s->bitbuf & ((1UL << FASTBITS) - 1);
+    e = h->fast[v];
+    if (e != 0 && (int)(e >> 9) <= s->bitcnt) {
+        s->bitbuf >>= (e >> 9);
+        s->bitcnt -= (int)(e >> 9);
+        return (int)(e & 0x1ff);
+    }
 
     for (len = 1; len <= MAXBITS; len++) {
         b = bits(s, 1);
@@ -93,6 +111,32 @@ static int construct(Huff *h, const short *length, int n)
     for (symbol = 0; symbol < n; symbol++) {
         if (length[symbol] != 0) {
             h->symbol[offs[length[symbol]]++] = (short)symbol;
+        }
+    }
+    /* the fast table: walk the canonical codes in order, as decode() does, and fill every slot a short code owns
+     * (DEFLATE sends code bits most-significant first, so the table is indexed by the bit-reversed code) */
+    {
+        int code = 0, index = 0, k;
+
+        for (k = 0; k < (1 << FASTBITS); k++) {
+            h->fast[k] = 0;
+        }
+        for (len = 1; len <= FASTBITS; len++) {
+            int c;
+
+            for (c = 0; c < h->count[len]; c++, code++, index++) {
+                int rev = 0, b, fill;
+
+                for (b = 0; b < len; b++) {
+                    if (code & (1 << b)) {
+                        rev |= 1 << (len - 1 - b);
+                    }
+                }
+                for (fill = rev; fill < (1 << FASTBITS); fill += 1 << len) {
+                    h->fast[fill] = (unsigned short)(h->symbol[index] | (len << 9));
+                }
+            }
+            code <<= 1;
         }
     }
     return left;
@@ -167,6 +211,7 @@ static int stored(Inf *s)
 {
     unsigned len, nlen;
 
+    s->pos -= (size_t)(s->bitcnt / 8);        /* whole bytes the fast decoder read ahead go back */
     s->bitbuf = 0;
     s->bitcnt = 0;
     if (s->pos + 4 > s->n) {
@@ -397,7 +442,8 @@ int inflate_zlib(const unsigned char *in, size_t n, unsigned char *out, size_t o
         *err = "the picture's data is smaller than its header says";
         return -1;
     }
-    /* the Adler-32 follows on a byte boundary */
+    /* the Adler-32 follows on a byte boundary, after giving back what the decoder read ahead */
+    s.pos -= (size_t)(s.bitcnt / 8);
     if (s.pos + 4 > n) {
         *err = "the compressed data ends too soon";
         return -1;
